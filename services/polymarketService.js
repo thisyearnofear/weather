@@ -38,22 +38,38 @@ class PolymarketService {
   /**
    * Fetch all active markets from Polymarket
    * Optionally filter by tags (e.g., "Sports", "Politics")
+   * IMPROVED: Better error handling for API parameter issues
    */
   async getAllMarkets(tags = null) {
     try {
+      // Try with minimal params first to avoid 422 errors
       const params = {
         limit: 100,
-        active: true,
-        order: 'volume24h'
+        closed: false  // Use 'closed' instead of 'active' (more reliable)
       };
 
       if (tags) {
-        params.tags = Array.isArray(tags) ? tags.join(',') : tags;
+        const tagArray = Array.isArray(tags) ? tags : [tags];
+        // Only add tags if specified - some API versions don't like empty tags
+        params.tag = tagArray;
       }
 
       const response = await axios.get(`${this.baseURL}/markets`, { params });
       return response.data || [];
     } catch (error) {
+      // If 422 or other error, try without parameters as fallback
+      if (error.response?.status === 422 || error.response?.status === 400) {
+        console.warn('Polymarket /markets endpoint failed with status', error.response?.status, 'trying without parameters');
+        try {
+          const fallbackResponse = await axios.get(`${this.baseURL}/markets`, {
+            params: { limit: 50 }  // Absolute minimum
+          });
+          return fallbackResponse.data || [];
+        } catch (fallbackError) {
+          console.error('Fallback getAllMarkets also failed:', fallbackError.message);
+          return [];
+        }
+      }
       console.error('Error fetching all markets:', error.message);
       return [];
     }

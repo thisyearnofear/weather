@@ -18,11 +18,27 @@ export async function POST(request) {
     const result = await polymarketService.searchMarketsByLocation(location);
 
     if (!result.markets || result.markets.length === 0) {
-      // Fallback: fetch all active markets as last resort
-      console.log(`No markets found for location "${location}", fetching all active markets...`);
-      const allMarkets = await polymarketService.getAllMarkets();
+      // Fallback: fetch weather-sensitive markets instead of all markets
+      console.log(`No location-specific markets found for "${location}", trying weather-sensitive markets...`);
       
-      const transformed = (allMarkets || []).slice(0, 10).map(m => ({
+      // Try weather-tagged markets first
+      const weatherMarkets = await polymarketService.getAllMarkets(['Weather']);
+      const allMarkets = weatherMarkets.length > 0 ? weatherMarkets : await polymarketService.getAllMarkets();
+      
+      // IMPROVED: Filter and sort intelligently
+      const filtered = (allMarkets || [])
+        .filter(m => {
+          // Filter by minimum volume
+          const vol = parseFloat(m.volume24h || m.volume || 0);
+          return vol >= 10000; // Lower threshold for fallback: $10k minimum
+        })
+        .sort((a, b) => {
+          // Sort by volume (descending)
+          return (parseFloat(b.volume24h || b.volume || 0) - parseFloat(a.volume24h || a.volume || 0));
+        })
+        .slice(0, 8); // Limit to 8 markets for better UX
+      
+      const transformed = filtered.map(m => ({
         marketID: m.tokenID || m.id,
         title: m.title || m.question,
         description: m.description,
@@ -41,7 +57,9 @@ export async function POST(request) {
         success: true,
         markets: transformed,
         location,
-        message: `No location match found. Showing top active markets.`,
+        message: transformed.length > 0 
+          ? `No location match found. Showing weather-sensitive markets.`
+          : `No weather-sensitive markets available for this location.`,
         totalFound: transformed.length,
         cached: false,
         timestamp: new Date().toISOString()
@@ -50,39 +68,45 @@ export async function POST(request) {
 
     // Transform markets to API response format
     // IMPROVED: Use real weatherData for relevance scoring
-    const transformedMarkets = result.markets.map(market => {
-      const title = market.title || market.question || '';
-      const location = polymarketService.extractLocation(title);
-      const metadata = polymarketService.extractMarketMetadata(title);
-      
-      // Use actual weather data for relevance scoring (not mock)
-      const weatherRelevance = polymarketService.assessWeatherRelevance(
-        market,
-        weatherData || { current: {} } // Empty fallback if no weather data
-      );
+    const transformedMarkets = result.markets
+      .map(market => {
+        const title = market.title || market.question || '';
+        const location = polymarketService.extractLocation(title);
+        const metadata = polymarketService.extractMarketMetadata(title);
+        
+        // Use actual weather data for relevance scoring (not mock)
+        const weatherRelevance = polymarketService.assessWeatherRelevance(
+          market,
+          weatherData || { current: {} } // Empty fallback if no weather data
+        );
 
-      return {
-        marketID: market.tokenID || market.id,
-        title,
-        description: market.description,
-        location,
-        currentOdds: {
-          yes: parseFloat(market.outcomePrices?.[0] || market.bid || market.yesPrice || 0.5),
-          no: parseFloat(market.outcomePrices?.[1] || market.ask || market.noPrice || 0.5)
-        },
-        volume24h: parseFloat(market.volume24h || market.volume || 0),
-        liquidity: parseFloat(market.liquidity || 0),
-        endDate: market.endDate || market.expiresAt,
-        tags: market.tags || [],
-        weatherRelevance: weatherRelevance.score,
-        weatherContext: weatherRelevance.weatherContext,
-        teams: metadata.teams,
-        eventType: metadata.event_type
-      };
-    });
-
-    // Sort by volume (roadmap requirement)
-    transformedMarkets.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
+        return {
+          marketID: market.tokenID || market.id,
+          title,
+          description: market.description,
+          location,
+          currentOdds: {
+            yes: parseFloat(market.outcomePrices?.[0] || market.bid || market.yesPrice || 0.5),
+            no: parseFloat(market.outcomePrices?.[1] || market.ask || market.noPrice || 0.5)
+          },
+          volume24h: parseFloat(market.volume24h || market.volume || 0),
+          liquidity: parseFloat(market.liquidity || 0),
+          endDate: market.endDate || market.expiresAt,
+          tags: market.tags || [],
+          weatherRelevance: weatherRelevance.score,
+          weatherContext: weatherRelevance.weatherContext,
+          teams: metadata.teams,
+          eventType: metadata.event_type
+        };
+      })
+      .filter(m => m.volume24h >= 50000) // IMPROVED: Filter low-volume markets
+      .sort((a, b) => {
+        // IMPROVED: Sort by weather relevance first, then volume
+        const relevanceDiff = (b.weatherRelevance || 0) - (a.weatherRelevance || 0);
+        if (relevanceDiff !== 0) return relevanceDiff;
+        return (b.volume24h || 0) - (a.volume24h || 0);
+      })
+      .slice(0, 8); // IMPROVED: Limit to 8 markets for better UX
 
     // IMPROVEMENT: Pre-cache market details for top 5 markets
     // Warm up the cache so analysis requests don't need to fetch details again

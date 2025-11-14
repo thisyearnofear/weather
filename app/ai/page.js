@@ -109,6 +109,7 @@ export default function AIPage() {
   };
 
   const handleAnalyzeMarket = (market) => {
+    console.log('🧠 Analyzing market:', market.title, market.marketID);
     setSelectedMarket(market);
     analyzeMarket(market);
   };
@@ -175,12 +176,13 @@ export default function AIPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Market Selection */}
-          <div className={`lg:col-span-1 ${cardBgColor} border rounded-lg p-6`}>
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          {/* Left Column - Market Selection (wider) */}
+          <div className={`lg:col-span-2 ${cardBgColor} border rounded-lg p-6`}>
             {isLoadingMarkets ? (
-              <div className="flex justify-center py-8">
-                <div className={`w-6 h-6 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor}`}></div>
+              <div className="flex justify-center py-12">
+                <div className={`w-8 h-8 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor}`}></div>
+                <p className={`${textColor} opacity-70 mt-3 text-sm`}>Finding markets...</p>
               </div>
             ) : (
               <MarketSelector
@@ -194,8 +196,8 @@ export default function AIPage() {
             )}
           </div>
 
-          {/* Right Column - Analysis & Trading */}
-          <div className={`lg:col-span-2 space-y-6`}>
+          {/* Right Column - Analysis & Trading (narrower, focused) */}
+          <div className={`lg:col-span-3 space-y-6`}>
             {/* Analysis Display */}
             {isLoadingAnalysis ? (
               <div className={`${cardBgColor} border rounded-lg p-8 flex justify-center`}>
