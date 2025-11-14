@@ -10,8 +10,6 @@ const nextConfig = {
 
   // Performance optimizations
   experimental: {
-    // Disable Turbopack to fix bundle processing issues
-    turbopack: false,
     // Enable scroll restoration
     scrollRestoration: true,
   },
@@ -44,26 +42,16 @@ const nextConfig = {
     ];
   },
 
-  // Webpack optimizations
-  webpack: (config, { dev }) => {
-    // Production optimizations
-    if (!dev) {
-      // Minimize bundle size
+  // Webpack configuration
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Disable split chunks for server to avoid self reference issues
       config.optimization = {
         ...config.optimization,
-        splitChunks: {
-          chunks: 'all',
-          cacheGroups: {
-            vendor: {
-              test: /[\\/]node_modules[\\/]/,
-              name: 'vendors',
-              chunks: 'all',
-            },
-          },
-        },
+        splitChunks: false,
+        runtimeChunk: false,
       };
     }
-
     return config;
   },
 };
