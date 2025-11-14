@@ -30,25 +30,26 @@ const callVeniceAI = async (params) => {
     },
     {
       role: 'user',
-      content: `Quick weather edge analysis:
+      content: `Analyze how this prediction market might be influenced by weather conditions.
 
-**Event:** ${eventType}
-**Weather:** ${weatherData?.current?.temp_f || 'unknown'}°F, ${weatherData?.current?.condition?.text || 'unknown'}, ${weatherData?.current?.precip_chance || '0'}% rain, ${weatherData?.current?.wind_mph || '0'}mph wind
-**Current Odds:** ${currentOdds}
+MARKET: "${eventType}"
+WEATHER CONDITIONS: ${weatherData?.current?.temp_f || 'unknown'}°F temperature, ${weatherData?.current?.condition?.text || 'unknown'} conditions, ${weatherData?.current?.precip_chance || '0'}% precipitation chance, ${weatherData?.current?.wind_mph || '0'}mph winds
+CURRENT ODDS: ${currentOdds}
 
-Return JSON:
+Respond with this exact JSON structure containing your analysis:
 {
-  "weather_impact": "HIGH/MEDIUM/LOW",
-  "odds_efficiency": "INEFFICIENT/EFFICIENT",
-  "confidence": "HIGH/MEDIUM/LOW",
-  "analysis": "1-2 sentences explaining key weather impact",
-  "key_factors": ["2-3 most important weather factors"],
-  "recommended_action": "Brief action: Buy/Sell/Hold specs"
+  "weather_impact": "LOW",
+  "odds_efficiency": "UNKNOWN", 
+  "confidence": "HIGH",
+  "analysis": "The weather conditions show minimal impact on this corporate market cap prediction.",
+  "key_factors": ["Weather has no direct influence on corporate performance"],
+  "recommended_action": "No trading action needed - weather irrelevant"
 }`
     }
   ];
 
   try {
+    console.log('🤖 Calling Venice AI...');
     const response = await client.chat.completions.create({
       model: 'qwen3-235b',
       messages,
@@ -58,7 +59,10 @@ Return JSON:
     });
 
     const content = response.choices[0].message.content;
+    console.log('🤖 Venice AI raw response:', content);
+
     const parsed = JSON.parse(content);
+    console.log('🤖 Venice AI parsed response:', parsed);
 
     return {
       assessment: {

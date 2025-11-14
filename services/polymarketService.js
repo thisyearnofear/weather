@@ -9,9 +9,11 @@ class PolymarketService {
     this.CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for market data
     this.marketDetailsCache = new Map();
     this.MARKET_DETAILS_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes for market details
+    this.marketCatalogCache = null;
+    this.MARKET_CATALOG_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes for full catalog
   }
 
-  // Generate cache key for markets
+  // Generate cache key for markets (location-based, for backward compatibility)
   generateCacheKey(location) {
     return `markets_${location}`;
   }
@@ -35,41 +37,64 @@ class PolymarketService {
     });
   }
 
+  // Get market catalog from cache
+  getCachedCatalog() {
+    if (this.marketCatalogCache && Date.now() - this.marketCatalogCache.timestamp < this.MARKET_CATALOG_CACHE_DURATION) {
+      return this.marketCatalogCache.data;
+    }
+    return null;
+  }
+
+  // Cache the full market catalog
+  setCachedCatalog(markets) {
+    this.marketCatalogCache = {
+      data: markets,
+      timestamp: Date.now()
+    };
+  }
+
   /**
    * Fetch all active markets from Polymarket
    * Optionally filter by tags (e.g., "Sports", "Politics")
-   * IMPROVED: Better error handling for API parameter issues
+   * IMPROVED: Uses /events endpoint for full tag metadata
    */
   async getAllMarkets(tags = null) {
     try {
-      // Try with minimal params first to avoid 422 errors
+      // Use /events endpoint for full metadata
       const params = {
         limit: 100,
-        closed: false  // Use 'closed' instead of 'active' (more reliable)
+        closed: false
       };
 
+      // If tag filtering requested, use tag_id parameter
       if (tags) {
         const tagArray = Array.isArray(tags) ? tags : [tags];
-        // Only add tags if specified - some API versions don't like empty tags
-        params.tag = tagArray;
+        // tags can be tag IDs or labels - API expects tag_id parameter
+        params.tag_id = tagArray[0]; // Use first tag if provided
       }
 
-      const response = await axios.get(`${this.baseURL}/markets`, { params });
-      return response.data || [];
-    } catch (error) {
-      // If 422 or other error, try without parameters as fallback
-      if (error.response?.status === 422 || error.response?.status === 400) {
-        console.warn('Polymarket /markets endpoint failed with status', error.response?.status, 'trying without parameters');
-        try {
-          const fallbackResponse = await axios.get(`${this.baseURL}/markets`, {
-            params: { limit: 50 }  // Absolute minimum
-          });
-          return fallbackResponse.data || [];
-        } catch (fallbackError) {
-          console.error('Fallback getAllMarkets also failed:', fallbackError.message);
-          return [];
+      const response = await axios.get(`${this.baseURL}/events`, { 
+        params,
+        timeout: 10000
+      });
+
+      // Extract all markets from events
+      const events = Array.isArray(response.data) ? response.data : (response.data?.events || []);
+      let allMarkets = [];
+      
+      for (const event of events) {
+        if (event.markets && Array.isArray(event.markets)) {
+          allMarkets = allMarkets.concat(
+            event.markets.map(m => ({
+              ...m,
+              eventTags: event.tags || []
+            }))
+          );
         }
       }
+
+      return allMarkets;
+    } catch (error) {
       console.error('Error fetching all markets:', error.message);
       return [];
     }
@@ -94,22 +119,29 @@ class PolymarketService {
           limit: 100,
           closed: false, // Active only
           offset: 0
-        }
+        },
+        timeout: 10000
       });
 
       let relevantMarkets = [];
 
-      if (response.data?.events && Array.isArray(response.data.events)) {
+      // Handle both array and object response formats
+      const events = Array.isArray(response.data) ? response.data : (response.data?.events || []);
+      
+      if (events && Array.isArray(events)) {
         // Find events matching the location
-        for (const event of response.data.events) {
+        for (const event of events) {
           const eventTitle = event.title || '';
           const eventLoc = this.extractLocation(eventTitle);
 
           // Match location (case-insensitive)
           if (eventLoc && eventLoc.toLowerCase() === location.toLowerCase()) {
-            // Add all markets from this event
+            // Add all markets from this event with event tags for metadata
             if (event.markets && Array.isArray(event.markets)) {
-              relevantMarkets.push(...event.markets);
+              relevantMarkets.push(...event.markets.map(m => ({
+                ...m,
+                eventTags: event.tags || [] // Include event tags for proper metadata extraction
+              })));
             }
           }
         }
@@ -158,7 +190,7 @@ class PolymarketService {
         return cached.data;
       }
 
-      const response = await axios.get(`${this.baseURL}/markets/${marketID}`);
+      const response = await axios.get(`${this.baseURL}/markets/${marketID}`, { timeout: 10000 });
       const marketData = response.data;
 
       // Enrich with trading metadata needed for orders
@@ -181,6 +213,369 @@ class PolymarketService {
     } catch (error) {
       console.error(`Error fetching market details for ${marketID}:`, error.message);
       return null;
+    }
+  }
+
+  /**
+   * Phase 1: Build liquidity-first market catalog
+   * Fetches all active markets and indexes by:
+   * - Market ID, title, description
+   * - Extracted location + event metadata
+   * - Current odds + volume + liquidity
+   * - Temporal metadata (resolution date)
+   * ROADMAP: Foundation for Phase 2 & 3 (weather scoring & edge detection)
+   * IMPROVED: Now uses /events endpoint to get full tag metadata
+   */
+  async buildMarketCatalog(minVolume = 50000) {
+    // Check cache first
+    const cached = this.getCachedCatalog();
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
+    try {
+      // Fetch events with full metadata (single page - 100 events should give 200+ markets)
+      // Catalog is cached for 30min, so we can be conservative to reduce API load
+      let allMarkets = [];
+      
+      try {
+        const response = await axios.get(`${this.baseURL}/events`, {
+          params: { limit: 100, offset: 0, closed: false },
+          timeout: 10000
+        });
+
+        if (response.data && Array.isArray(response.data)) {
+          // Extract markets from events (each event can have multiple markets)
+          const events = response.data;
+          for (const event of events) {
+            if (event.markets && Array.isArray(event.markets)) {
+              allMarkets = allMarkets.concat(
+                event.markets.map(m => ({
+                  ...m,
+                  eventTags: event.tags || [] // Include event tags for metadata extraction
+                }))
+              );
+            }
+          }
+        }
+      } catch (fetchError) {
+        console.warn(`Error fetching events:`, fetchError.message);
+        // Continue with empty allMarkets - will be caught in caller
+      }
+
+      // Index and enrich with metadata (WITHOUT order book - defer that for final results)
+      const baseCatalog = allMarkets
+        .filter(m => {
+          const vol = parseFloat(m.volume24h || m.volume || 0);
+          return vol >= minVolume;
+        });
+
+      // First pass: Build catalog with fallback enrichment only (no order book API calls)
+      const baseEnrichedMarkets = baseCatalog.map((market) => {
+        const title = market.title || market.question || '';
+        // Use eventTags (from parent event) for more reliable detection
+        const tags = market.eventTags || market.tags || [];
+        const metadata = this.extractMarketMetadata(title, tags);
+
+        // Use available data only - no order book API calls yet
+        const enrichedData = this.enrichMarketWithAvailableData(market);
+
+        return {
+          marketID: market.tokenID || market.id,
+          title,
+          description: market.description,
+          location: metadata.location,
+          teams: metadata.teams,
+          eventType: metadata.event_type,
+          currentOdds: {
+            yes: parseFloat(market.outcomePrices?.[0] || enrichedData.orderBook?.bestAsk || 0.5),
+            no: parseFloat(market.outcomePrices?.[1] || enrichedData.orderBook?.bestBid || 0.5)
+          },
+          volume24h: enrichedData.volumeMetrics?.vol24h || parseFloat(market.volume24h || market.volume || 0),
+          liquidity: enrichedData.marketEfficiency?.liquidityScore || parseFloat(market.liquidity || 0),
+          tags: tags,
+          resolutionDate: market.endDate || market.expiresAt,
+
+          // New enriched data for richer UI
+          orderBookMetrics: enrichedData.orderBook,
+          volumeMetrics: enrichedData.volumeMetrics,
+          marketEfficiency: enrichedData.marketEfficiency,
+          enrichmentSource: enrichedData.enrichmentSource,
+          enriched: enrichedData.enriched,
+
+          // Enhanced odds with spread analysis
+          oddsAnalysis: {
+            bestBid: enrichedData.orderBook?.bestBid,
+            bestAsk: enrichedData.orderBook?.bestAsk,
+            spread: enrichedData.orderBook?.spread,
+            spreadPercent: enrichedData.orderBook?.spreadPercent,
+            midPrice: enrichedData.orderBook?.bestBid && enrichedData.orderBook?.bestAsk ?
+              (enrichedData.orderBook.bestBid + enrichedData.orderBook.bestAsk) / 2 : null,
+            marketDepth: this.calculateDepthImpact(enrichedData.orderBook)
+          },
+
+          rawMarket: market // Keep original for reference
+        };
+        });
+
+        // Sort by volume (no second pass - let getTopWeatherSensitiveMarkets handle order book enrichment)
+        baseEnrichedMarkets.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
+        const catalog = baseEnrichedMarkets;
+
+      const result = {
+        markets: catalog,
+        totalMarkets: catalog.length,
+        minVolume,
+        timestamp: new Date().toISOString(),
+        cached: false
+      };
+
+      // Cache the catalog
+      this.setCachedCatalog(result);
+
+      return result;
+    } catch (error) {
+      console.error('Error building market catalog:', error.message);
+      return {
+        markets: [],
+        totalMarkets: 0,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+        cached: false
+      };
+    }
+  }
+
+  /**
+   * Phase 2: Assess market weather edge potential
+   * Scores markets by 4 relevance factors:
+   * 1. weatherDirect: Market explicitly about weather
+   * 2. weatherSensitiveEvent: Outdoor events affected by weather (sports, etc)
+   * 3. contextualWeatherImpact: Event location weather vs market odds relationship
+   * 4. asymmetrySignal: Information asymmetry detection (odds don't reflect weather clarity)
+   * ROADMAP: Used by getTopWeatherSensitiveMarkets() for ranking
+   */
+  assessMarketWeatherEdge(market, weatherData = null) {
+    const title = (market.title || '').toLowerCase();
+    const description = (market.description || '').toLowerCase();
+    const tags = (market.tags || []).map(t => {
+      if (typeof t === 'string') return t.toLowerCase();
+      if (typeof t === 'object' && t.label) return t.label.toLowerCase();
+      return '';
+    }).join(' ');
+
+    // Current weather conditions (if available)
+    const currentTemp = weatherData?.current?.temp_f;
+    const currentCondition = (weatherData?.current?.condition?.text || '').toLowerCase();
+    const precipChance = weatherData?.current?.precip_chance || weatherData?.current?.precip_prob || 0;
+    const windSpeed = weatherData?.current?.wind_mph;
+    const humidity = weatherData?.current?.humidity;
+
+    // Factor 1: Weather-Direct (market explicitly about weather)
+    let weatherDirect = 0;
+    if (title.includes('weather') || title.includes('temperature') || 
+        title.includes('rain') || title.includes('snow') || title.includes('wind')) {
+      weatherDirect = 3;
+    }
+
+    // Factor 2: Weather-Sensitive Events (outdoor events, sports)
+    let weatherSensitiveEvent = 0;
+    const sportEvents = ['nfl', 'nba', 'mlb', 'golf', 'tennis', 'cricket', 'soccer', 'rugby'];
+    const isSportEvent = sportEvents.some(sport => title.includes(sport) || tags.includes(sport));
+    const isOutdoorEvent = title.includes('marathon') || title.includes('race') || isSportEvent;
+    
+    if (isOutdoorEvent) {
+      weatherSensitiveEvent = 2;
+    }
+
+    // Factor 3: Contextual Weather Impact
+    let contextualWeatherImpact = 0;
+    if (isOutdoorEvent && weatherData?.current) {
+      // Award points if weather conditions match event keywords
+      if ((windSpeed && windSpeed > 15) && (title.includes('wind') || title.includes('sail'))) {
+        contextualWeatherImpact += 1.5;
+      }
+      if ((precipChance && precipChance > 30) && (title.includes('rain') || title.includes('snow'))) {
+        contextualWeatherImpact += 1.5;
+      }
+      if ((currentTemp && (currentTemp < 45 || currentTemp > 85)) && 
+          (title.includes('cold') || title.includes('heat') || title.includes('temperature'))) {
+        contextualWeatherImpact += 1;
+      }
+      if ((humidity && humidity > 70) && (title.includes('humidity') || title.includes('moisture'))) {
+        contextualWeatherImpact += 0.5;
+      }
+    }
+
+    // Factor 4: Asymmetry Signal (detect potential market inefficiencies)
+    // NEW: Enhanced with order book and volume trend data from enriched markets
+    let asymmetrySignal = 0;
+    const volume = market.volume24h || market.volumeMetrics?.vol24h || 0;
+    const liquidity = market.liquidity || market.marketEfficiency?.liquidityScore || 0;
+    const volumeTrend = market.volumeMetrics?.volumeTrend || 0;
+    const spreadPercent = market.oddsAnalysis?.spreadPercent || market.orderBookMetrics?.spreadPercent || 0;
+
+    // Volume to liquidity ratio (higher = more potential inefficiency)
+    if (volume > 0 && liquidity > 0) {
+      const volumeLiquidityRatio = volume / liquidity;
+      if (volumeLiquidityRatio > 2) asymmetrySignal += 1;
+      if (volumeLiquidityRatio > 5) asymmetrySignal += 0.5; // Bonus for very high ratio
+    }
+
+    // Sudden volume increase (potential information asymmetry)
+    if (volumeTrend > 50) { // Volume 50% above weekly average
+      asymmetrySignal += 1.5;
+    } else if (volumeTrend > 25) {
+      asymmetrySignal += 1;
+    }
+
+    // Wide spreads indicate low efficiency
+    if (spreadPercent > 2) { // Spread > 2%
+      asymmetrySignal += 0.5;
+    } else if (spreadPercent > 5) {
+      asymmetrySignal += 1;
+    }
+
+    // Large price movements without volume (potential manipulation or news)
+    const volatilityScore = market.marketEfficiency?.volatilityScore || 0;
+    if (volatilityScore > 0.1 && volumeTrend < 10) { // High volatility, low volume change
+      asymmetrySignal += 0.5;
+    }
+
+    const totalScore = weatherDirect + weatherSensitiveEvent + contextualWeatherImpact + asymmetrySignal;
+
+    return {
+      totalScore: Math.min(totalScore, 10),
+      factors: {
+        weatherDirect,
+        weatherSensitiveEvent,
+        contextualWeatherImpact,
+        asymmetrySignal
+      },
+      isWeatherSensitive: totalScore > 0,
+      confidence: totalScore > 6 ? 'HIGH' : totalScore > 3 ? 'MEDIUM' : 'LOW',
+      weatherContext: {
+        temp: currentTemp,
+        condition: currentCondition,
+        precipChance,
+        windSpeed,
+        humidity,
+        hasData: !!(weatherData?.current)
+      }
+    };
+  }
+
+  /**
+   * Phase 3: Get top weather-sensitive markets
+   * Replaces location-based discovery with edge-ranked results
+   * Returns markets sorted by weather edge potential, not geolocation
+   * ROADMAP: Primary method for market discovery in new architecture
+   */
+  async getTopWeatherSensitiveMarkets(limit = 10, filters = {}) {
+    try {
+      // Get full catalog (without order book enrichment to avoid rate limits)
+      const catalogResult = await this.buildMarketCatalog(filters.minVolume || 50000);
+      
+      if (!catalogResult.markets || catalogResult.markets.length === 0) {
+        return {
+          markets: [],
+          totalFound: 0,
+          message: 'No weather-sensitive markets found',
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      // Score each market for weather edge potential
+      const scoredMarkets = catalogResult.markets.map(market => {
+        const edgeAssessment = this.assessMarketWeatherEdge(market, filters.weatherData);
+        return {
+          ...market,
+          edgeScore: edgeAssessment.totalScore,
+          edgeFactors: edgeAssessment.factors,
+          confidence: edgeAssessment.confidence,
+          weatherContext: edgeAssessment.weatherContext,
+          isWeatherSensitive: edgeAssessment.isWeatherSensitive
+        };
+      });
+
+      // FILTER 1: Only markets with actual weather edge (score > 0)
+      let filtered = scoredMarkets.filter(m => m.edgeScore > 0);
+
+      // FILTER 2: Event type if specified (only show markets that match the type)
+      if (filters.eventType && filters.eventType !== 'all') {
+        filtered = filtered.filter(m => {
+          const matches = m.eventType === filters.eventType;
+          if (!matches) {
+            console.debug(`Filtering out: "${m.title.substring(0, 50)}" (eventType: ${m.eventType} vs filter: ${filters.eventType})`);
+          }
+          return matches;
+        });
+        console.log(`Filter by eventType '${filters.eventType}': ${filtered.length} of ${scoredMarkets.length} markets remain`);
+      }
+
+      // FILTER 3: Confidence level if specified
+      if (filters.confidence && filters.confidence !== 'all') {
+        filtered = filtered.filter(m => m.confidence === filters.confidence);
+      }
+
+      // FILTER 4: Location if user provided (optional, for personalization)
+      if (filters.location) {
+        filtered = filtered.filter(m => 
+          m.location && m.location.toLowerCase() === filters.location.toLowerCase()
+        );
+      }
+
+      // Sort by edge score (descending), then by volume (for tiebreaker)
+      filtered.sort((a, b) => {
+        const scoreDiff = (b.edgeScore || 0) - (a.edgeScore || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.volume24h || 0) - (a.volume24h || 0);
+      });
+
+      // NOW enrich only the final display markets with order book data (limit = ~10-12)
+      const finalMarkets = filtered.slice(0, limit);
+      const enrichedFinal = await Promise.all(
+        finalMarkets.map(async (market) => {
+          try {
+            const orderBookData = await this.enrichMarketWithOrderBook(market.rawMarket);
+            return {
+              ...market,
+              orderBookMetrics: orderBookData.orderBook,
+              volumeMetrics: orderBookData.volumeMetrics,
+              marketEfficiency: orderBookData.marketEfficiency,
+              enrichmentSource: orderBookData.enrichmentSource,
+              enriched: orderBookData.enriched,
+              oddsAnalysis: {
+                bestBid: orderBookData.orderBook?.bestBid,
+                bestAsk: orderBookData.orderBook?.bestAsk,
+                spread: orderBookData.orderBook?.spread,
+                spreadPercent: orderBookData.orderBook?.spreadPercent,
+                midPrice: orderBookData.orderBook?.bestBid && orderBookData.orderBook?.bestAsk ?
+                  (orderBookData.orderBook.bestBid + orderBookData.orderBook.bestAsk) / 2 : null,
+                marketDepth: this.calculateDepthImpact(orderBookData.orderBook)
+              }
+            };
+          } catch (enrichError) {
+            console.debug(`Order book enrichment failed for ${market.title}, using fallback:`, enrichError.message);
+            return market; // Keep fallback enrichment if order book fails
+          }
+        })
+      );
+
+      return {
+        markets: enrichedFinal,
+        totalFound: filtered.length,
+        timestamp: new Date().toISOString(),
+        cached: catalogResult.cached || false
+      };
+    } catch (error) {
+      console.error('Error getting top weather-sensitive markets:', error.message);
+      return {
+        markets: [],
+        totalFound: 0,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
     }
   }
 
@@ -402,7 +797,7 @@ class PolymarketService {
   /**
    * Extract detailed metadata from market title including teams and venues
    */
-  extractMarketMetadata(marketTitle) {
+  extractMarketMetadata(marketTitle, tags = []) {
     if (!marketTitle) return {};
 
     const metadata = {
@@ -411,6 +806,25 @@ class PolymarketService {
       event_type: null,
       venue: null
     };
+    
+    // Check tags first (more reliable) - handle both string and object tags
+    const tagLabels = (tags || []).map(t => {
+      if (typeof t === 'string') return t.toLowerCase();
+      if (typeof t === 'object' && t.label) return t.label.toLowerCase();
+      return '';
+    }).join(' ');
+    
+    if (tagLabels.includes('nfl')) {
+      return { ...metadata, event_type: 'NFL' };
+    } else if (tagLabels.includes('nba')) {
+      return { ...metadata, event_type: 'NBA' };
+    } else if (tagLabels.includes('mlb')) {
+      return { ...metadata, event_type: 'MLB' };
+    } else if (tagLabels.includes('nhl')) {
+      return { ...metadata, event_type: 'NHL' };
+    } else if (tagLabels.includes('weather')) {
+      return { ...metadata, event_type: 'Weather' };
+    }
 
     // Common sports teams
     const teamPatterns = [
@@ -608,12 +1022,331 @@ class PolymarketService {
   }
 
   /**
+   * Phase 1: Enrich market with order book and depth analytics
+   * Fetches order book data and calculates rich metrics for edge detection
+   * Uses clobTokenIds from market data (array of outcome token IDs)
+   */
+  async enrichMarketWithOrderBook(marketData) {
+    try {
+      // Extract token IDs - market data provides clobTokenIds as JSON string or array
+      let tokenIds = marketData?.clobTokenIds;
+      
+      // Parse if it's a string
+      if (typeof tokenIds === 'string') {
+        try {
+          tokenIds = JSON.parse(tokenIds);
+        } catch (e) {
+          console.debug('Failed to parse clobTokenIds for market', marketData?.id, ':', e.message);
+          return this.enrichMarketWithAvailableData(marketData);
+        }
+      }
+      
+      if (!tokenIds || !Array.isArray(tokenIds) || tokenIds.length === 0) {
+        console.debug('No clobTokenIds available for market:', marketData?.id, 'using fallback');
+        return this.enrichMarketWithAvailableData(marketData);
+      }
+
+      // Fetch order book for first outcome (YES token)
+      // The clobTokenIds array typically has [YES_token_id, NO_token_id]
+      const yesTokenId = tokenIds[0];
+      if (!yesTokenId) {
+        console.debug('Token ID is empty for market:', marketData?.id);
+        return this.enrichMarketWithAvailableData(marketData);
+      }
+      
+      let orderBook;
+      try {
+        const orderBookResponse = await axios.get(`${this.clobBaseURL}/book`, {
+          params: { token_id: yesTokenId },
+          timeout: 5000,
+          // Add retry-after handling for rate limits
+          headers: {
+            'User-Agent': 'weather-edge-bot/1.0'
+          }
+        });
+        orderBook = orderBookResponse.data;
+      } catch (bookError) {
+        // If rate limited, wait a bit and try once more (but short timeout)
+        if (bookError.response?.status === 429) {
+          console.debug('Rate limited on order book fetch, will use fallback');
+          return this.enrichMarketWithAvailableData(marketData);
+        }
+        throw bookError;
+      }
+
+      // Extract best bids and asks from order book
+      const bestBid = orderBook?.bids?.length > 0 ? Math.max(...orderBook.bids.map(b => parseFloat(b.price))) : null;
+      const bestAsk = orderBook?.asks?.length > 0 ? Math.min(...orderBook.asks.map(a => parseFloat(a.price))) : null;
+
+      // Calculate spread and depth metrics
+      const spread = bestBid && bestAsk ? bestAsk - bestBid : (marketData.spread || 0);
+      const spreadPercent = spread ? (spread / ((bestBid + bestAsk) / 2)) * 100 : 0;
+
+      // Calculate order book depth (total size at best levels)
+      const bidDepth = orderBook?.bids?.reduce((sum, bid) => sum + parseFloat(bid.size), 0) || 0;
+      const askDepth = orderBook?.asks?.reduce((sum, ask) => sum + parseFloat(ask.size), 0) || 0;
+
+      // Volume trend analysis (24h vs 1wk average)
+      const vol24h = parseFloat(marketData.volume24hr || marketData.volume24h || 0);
+      const vol1wk = parseFloat(marketData.volume1wk || 0);
+      const avgDailyVol = vol1wk / 7;
+      const volumeTrend = avgDailyVol > 0 ? ((vol24h - avgDailyVol) / avgDailyVol) * 100 : 0;
+
+      // Market efficiency score (volatility vs volume)
+      const priceChanges = [
+        parseFloat(marketData.oneDayPriceChange || 0),
+        parseFloat(marketData.oneWeekPriceChange || 0),
+        parseFloat(marketData.oneMonthPriceChange || 0)
+      ].filter(pc => !isNaN(pc));
+
+      const avgPriceChange = priceChanges.length > 0 ?
+        priceChanges.reduce((a, b) => a + b, 0) / priceChanges.length : 0;
+
+      const efficiencyRatio = vol24h > 0 ? Math.abs(avgPriceChange * 100) / vol24h : 0;
+
+      return {
+        ...marketData,
+        orderBook: {
+          bestBid,
+          bestAsk,
+          spread,
+          spreadPercent,
+          bidDepth,
+          askDepth,
+          totalDepth: bidDepth + askDepth
+        },
+        volumeMetrics: {
+          vol24h,
+          vol1wk,
+          vol1mo: parseFloat(marketData.volume1mo || 0),
+          vol1yr: parseFloat(marketData.volume1yr || 0),
+          volumeTrend, // % change from weekly average
+          volumeTrendDirection: volumeTrend > 10 ? 'increasing' :
+                                volumeTrend < -10 ? 'decreasing' : 'stable'
+        },
+        marketEfficiency: {
+          efficiencyRatio,
+          volatilityScore: Math.abs(avgPriceChange),
+          liquidityScore: parseFloat(marketData.liquidity || 0)
+        },
+        enriched: true,
+        enrichmentSource: 'order_book_api'
+      };
+
+    } catch (orderBookError) {
+      console.debug('Order book fetch failed, falling back to available data:', orderBookError.message);
+      return this.enrichMarketWithAvailableData(marketData);
+    }
+  }
+
+  /**
+    * Fallback enrichment when order book API is unavailable
+    * Uses available market fields to calculate similar metrics
+    * Prefers outcomePrices from /events endpoint
+    */
+   enrichMarketWithAvailableData(marketData) {
+      // Use outcomePrices if available (from /events endpoint - more reliable)
+      let bestBid = null;
+      let bestAsk = null;
+      let outcomePrices = marketData.outcomePrices;
+      
+      // Parse if outcomePrices is a JSON string
+      if (typeof outcomePrices === 'string') {
+        try {
+          outcomePrices = JSON.parse(outcomePrices);
+        } catch (e) {
+          outcomePrices = null;
+        }
+      }
+      
+      if (outcomePrices && Array.isArray(outcomePrices) && outcomePrices.length >= 2) {
+        // outcomePrices[0] = YES outcome, outcomePrices[1] = NO outcome
+        const parsed0 = parseFloat(outcomePrices[0]);
+        const parsed1 = parseFloat(outcomePrices[1]);
+        if (!isNaN(parsed0) && parsed0 > 0) bestAsk = parsed0;
+        if (!isNaN(parsed1) && parsed1 > 0) bestBid = parsed1;
+      }
+      
+      // Fallback to bestBid/bestAsk fields if available and haven't been set
+      if (bestBid === null) {
+        const parsedBid = parseFloat(marketData.bestBid);
+        if (!isNaN(parsedBid) && parsedBid > 0) bestBid = parsedBid;
+      }
+      if (bestAsk === null) {
+        const parsedAsk = parseFloat(marketData.bestAsk);
+        if (!isNaN(parsedAsk) && parsedAsk > 0) bestAsk = parsedAsk;
+      }
+      
+      // Try price/volume fields common in some APIs
+      if (bestBid === null && marketData.price !== undefined) {
+        const parsedPrice = parseFloat(marketData.price);
+        if (!isNaN(parsedPrice) && parsedPrice > 0) bestBid = parsedPrice;
+      }
+      if (bestAsk === null && marketData.price !== undefined) {
+        const parsedPrice = parseFloat(marketData.price);
+        if (!isNaN(parsedPrice) && parsedPrice > 0) bestAsk = parsedPrice;
+      }
+      
+      // If still no prices, try lastTradePrice
+      if (bestBid === null || bestAsk === null) {
+        const lastTradePrice = parseFloat(marketData.lastTradePrice || 0);
+        if (!isNaN(lastTradePrice) && lastTradePrice > 0) {
+          if (bestAsk === null) bestAsk = lastTradePrice;
+          if (bestBid === null) bestBid = Math.max(0.001, lastTradePrice - 0.01);
+        }
+      }
+      
+      // Final safety: use 0.5 (50/50 odds) if no prices available at all
+      if (bestBid === null) bestBid = 0.5;
+      if (bestAsk === null) bestAsk = 0.5;
+      
+      // Debug log for problematic markets
+      if (bestBid === 0.5 && bestAsk === 0.5) {
+        console.debug(`Market ${marketData.id} using default 50/50 odds. Available fields:`, {
+          outcomePrices: marketData.outcomePrices,
+          bestBid: marketData.bestBid,
+          bestAsk: marketData.bestAsk,
+          price: marketData.price,
+          lastTradePrice: marketData.lastTradePrice
+        });
+      }
+     
+     // Calculate spread from available data
+     const spread = parseFloat(marketData.spread || 0);
+     const midPrice = bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0.5;
+     const spreadPercent = (spread > 0 && midPrice > 0) ? (spread / midPrice) * 100 : 0;
+
+    // Volume trend analysis using available fields
+    const vol24h = parseFloat(marketData.volume24hr || marketData.volume24h || 0);
+    const vol1wk = parseFloat(marketData.volume1wk || 0);
+    const avgDailyVol = vol1wk / 7;
+    const volumeTrend = avgDailyVol > 0 ? ((vol24h - avgDailyVol) / avgDailyVol) * 100 : 0;
+
+    return {
+      ...marketData,
+      orderBook: {
+        bestBid: bestBid || null,
+        bestAsk: bestAsk || null,
+        spread,
+        spreadPercent: spreadPercent || 0,
+        bidDepth: parseFloat(marketData.liquidity || 0) * 0.5, // Estimate
+        askDepth: parseFloat(marketData.liquidity || 0) * 0.5, // Estimate
+        totalDepth: parseFloat(marketData.liquidity || 0)
+      },
+      volumeMetrics: {
+        vol24h,
+        vol1wk,
+        vol1mo: parseFloat(marketData.volume1mo || 0),
+        vol1yr: parseFloat(marketData.volume1yr || 0),
+        volumeTrend,
+        volumeTrendDirection: volumeTrend > 10 ? 'increasing' :
+                             volumeTrend < -10 ? 'decreasing' : 'stable'
+      },
+      marketEfficiency: {
+        efficiencyRatio: 0, // Can't calculate without order book
+        volatilityScore: Math.abs(parseFloat(marketData.oneDayPriceChange || 0)),
+        liquidityScore: parseFloat(marketData.liquidity || 0)
+      },
+      enriched: true,
+      enrichmentSource: 'fallback_api_data'
+    };
+  }
+
+  /**
+   * Get enriched market details with full analytics for edge detection
+   * Combines base market data with order book analytics
+   */
+  async getEnrichedMarketDetails(marketID) {
+    try {
+      // Get base market details
+      const baseMarketData = await this.getMarketDetails(marketID);
+      if (!baseMarketData) return null;
+
+      // Enrich with order book and analytics
+      const enrichedData = await this.enrichMarketWithOrderBook(baseMarketData);
+
+      return enrichedData;
+    } catch (error) {
+      console.error(`Error enriching market details for ${marketID}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Calculate capital required to move market odds significantly
+   * Useful for assessing market depth and edge potential
+   */
+  calculateDepthImpact(orderBook, targetMovement = 0.05) {
+    if (!orderBook?.bids?.length || !orderBook?.asks?.length) {
+      return {
+        capitalToMove5Percent: 'N/A',
+        marketDepth: 'shallow',
+        liquidityRating: 'low'
+      };
+    }
+
+    const bids = orderBook.bids
+      .map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }))
+      .sort((a, b) => b.price - a.price); // Sort bids high to low
+
+    const asks = orderBook.asks
+      .map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }))
+      .sort((a, b) => a.price - b.price); // Sort asks low to high
+
+    const midPrice = (bids[0]?.price + asks[0]?.price) / 2;
+    const targetPrice = midPrice * (1 + targetMovement);
+
+    let capitalRequired = 0;
+    let totalSizeRemoved = 0;
+
+    // Calculate capital needed to move price up by targetMovement %
+    for (const ask of asks) {
+      if (ask.price <= targetPrice) {
+        capitalRequired += ask.price * ask.size;
+        totalSizeRemoved += ask.size;
+      } else {
+        // Partial fill of last level
+        const remainingMovement = targetPrice - (midPrice + (totalSizeRemoved * midPrice * 0.001));
+        if (remainingMovement > 0) {
+          const partialSize = remainingMovement / (ask.price - midPrice);
+          capitalRequired += ask.price * partialSize;
+        }
+        break;
+      }
+    }
+
+    // Rate market depth
+    let depthRating, liquidityRating;
+    const totalDepth = orderBook.bids.reduce((sum, b) => sum + b.size, 0) +
+                      orderBook.asks.reduce((sum, a) => sum + a.size, 0);
+
+    if (totalDepth > 1000) {
+      depthRating = 'deep';
+      liquidityRating = 'high';
+    } else if (totalDepth > 100) {
+      depthRating = 'moderate';
+      liquidityRating = 'medium';
+    } else {
+      depthRating = 'shallow';
+      liquidityRating = 'low';
+    }
+
+    return {
+      capitalToMove5Percent: capitalRequired.toFixed(2),
+      marketDepth: depthRating,
+      liquidityRating,
+      totalOrderBookSize: totalDepth.toFixed(2)
+    };
+  }
+
+  /**
    * Get market price history (if available via API)
    */
   async getMarketHistory(marketID) {
     try {
       const response = await axios.get(`${this.baseURL}/markets/${marketID}/history`, {
-        params: { limit: 100 }
+        params: { limit: 100 },
+        timeout: 10000
       });
       return response.data;
     } catch (error) {

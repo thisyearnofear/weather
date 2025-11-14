@@ -22,6 +22,10 @@ export default function AIPage() {
   const [markets, setMarkets] = useState(null);
   const [selectedMarket, setSelectedMarket] = useState(null);
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(false);
+  const [marketFilters, setMarketFilters] = useState({
+    eventType: 'all',
+    confidence: 'all'
+  });
 
   // Analysis state
   const [analysis, setAnalysis] = useState(null);
@@ -37,12 +41,12 @@ export default function AIPage() {
     loadWeather();
   }, []);
 
-  // Fetch markets when weather loads
+  // Fetch markets when weather loads or filters change
   useEffect(() => {
     if (weatherData) {
       fetchMarkets();
     }
-  }, [weatherData]);
+  }, [weatherData, marketFilters]);
 
 
 
@@ -74,17 +78,42 @@ export default function AIPage() {
     setIsLoadingMarkets(true);
     setError(null);
 
-    const result = await aiService.fetchMarkets(weatherData.location.name, weatherData);
-    if (result.success) {
-      setMarkets(result.markets);
-      // Auto-select first market
-      if (result.markets.length > 0) {
-        setSelectedMarket(result.markets[0]);
+    try {
+      // Call edge-ranked discovery with user filters
+      const response = await fetch('/api/markets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weatherData,
+          location: weatherData?.location?.name || null,
+          eventType: marketFilters.eventType,
+          confidence: marketFilters.confidence,
+          limitCount: 12 // Fetch more to show when filters reduce results
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
       }
-    } else {
-      setError(result.error);
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setMarkets(result.markets);
+        if (result.markets.length > 0) {
+          setSelectedMarket(result.markets[0]);
+        } else {
+          setError('No weather-sensitive markets found. Try adjusting filters.');
+        }
+      } else {
+        setError(result.error || 'Failed to fetch markets');
+      }
+    } catch (err) {
+      console.error('Market fetch failed:', err);
+      setError('Unable to fetch markets');
+    } finally {
+      setIsLoadingMarkets(false);
     }
-    setIsLoadingMarkets(false);
   };
 
   const analyzeMarket = async (market = null) => {
@@ -95,9 +124,31 @@ export default function AIPage() {
     setAnalysis(null);
 
     const result = await aiService.analyzeMarket(marketToAnalyze, weatherData);
+    console.log('🎯 Full analysis result:', result);
+
     if (result.success) {
-      setAnalysis(result.analysis);
+      // Always use the full result object structure for backward compatibility
+      const analysisData = {
+        assessment: result.assessment || {},
+        analysis: result.reasoning || result.analysis || 'No analysis available',
+        key_factors: result.key_factors || [],
+        recommended_action: result.recommended_action || 'Monitor manually',
+        cached: result.cached || false,
+        source: result.source || 'unknown',
+        timestamp: result.timestamp
+      };
+
+      console.log('✅ Analysis data structure:', {
+        hasAssessment: !!analysisData.assessment,
+        hasAnalysis: !!analysisData.analysis,
+        hasKeyFactors: !!analysisData.key_factors,
+        recommendedAction: analysisData.recommended_action,
+        reasoningLength: analysisData.analysis?.length
+      });
+
+      setAnalysis(analysisData);
     } else {
+      console.log('❌ Analysis failed:', result.error);
       setError(result.error);
     }
     setIsLoadingAnalysis(false);
@@ -164,6 +215,47 @@ export default function AIPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-12">
+        {/* Filter Controls */}
+        <div className={`${cardBgColor} border rounded-lg p-4 mb-6`}>
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+            <div className="flex-1">
+              <label className={`${textColor} text-xs opacity-60 block mb-2`}>Event Type</label>
+              <select
+                value={marketFilters.eventType}
+                onChange={(e) => setMarketFilters(prev => ({ ...prev, eventType: e.target.value }))}
+                className={`w-full px-3 py-2 text-sm rounded border ${
+                  isNight 
+                    ? 'bg-white/10 border-white/20 text-white' 
+                    : 'bg-black/10 border-black/20 text-black'
+                }`}
+              >
+                <option value="all">All Types</option>
+                <option value="NFL">NFL</option>
+                <option value="NBA">NBA</option>
+                <option value="Weather">Weather</option>
+                <option value="Politics">Politics</option>
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className={`${textColor} text-xs opacity-60 block mb-2`}>Confidence</label>
+              <select
+                value={marketFilters.confidence}
+                onChange={(e) => setMarketFilters(prev => ({ ...prev, confidence: e.target.value }))}
+                className={`w-full px-3 py-2 text-sm rounded border ${
+                  isNight 
+                    ? 'bg-white/10 border-white/20 text-white' 
+                    : 'bg-black/10 border-black/20 text-black'
+                }`}
+              >
+                <option value="all">All Confidence</option>
+                <option value="HIGH">High Only</option>
+                <option value="MEDIUM">Medium+</option>
+                <option value="LOW">Low+</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         {error && (
           <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 mb-6">
             <p className={`${textColor} text-sm`}>{error}</p>
@@ -176,9 +268,9 @@ export default function AIPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Left Column - Market Selection (wider) */}
-          <div className={`lg:col-span-2 ${cardBgColor} border rounded-lg p-6`}>
+        <div className="space-y-6">
+          {/* Markets - Full Width */}
+          <div className={`${cardBgColor} border rounded-lg p-6`}>
             {isLoadingMarkets ? (
               <div className="flex justify-center py-12">
                 <div className={`w-8 h-8 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor}`}></div>
@@ -196,8 +288,8 @@ export default function AIPage() {
             )}
           </div>
 
-          {/* Right Column - Analysis & Trading (narrower, focused) */}
-          <div className={`lg:col-span-3 space-y-6`}>
+          {/* Analysis & Trading - Full Width Below */}
+          <div className="space-y-6">
             {/* Analysis Display */}
             {isLoadingAnalysis ? (
               <div className={`${cardBgColor} border rounded-lg p-8 flex justify-center`}>

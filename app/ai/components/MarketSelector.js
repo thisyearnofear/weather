@@ -25,7 +25,7 @@ export default function MarketSelector({
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="text-center">
         <h3 className={`text-2xl font-thin ${textColor} tracking-wide`}>
           Available Markets
         </h3>
@@ -39,7 +39,7 @@ export default function MarketSelector({
           <button
             key={market.marketID || index}
             onClick={() => onSelectMarket(market)}
-            className={`w-full p-4 rounded-2xl border backdrop-blur-sm transition-all text-left duration-200 ${
+            className={`w-full p-4 rounded-2xl border backdrop-blur-sm transition-all text-center duration-200 ${
               selectedMarket?.marketID === market.marketID
                 ? activeBgColor
                 : `${bgColor} ${hoverBgColor}`
@@ -52,27 +52,68 @@ export default function MarketSelector({
 
             {/* Tags */}
             {market.tags && market.tags.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {market.tags.slice(0, 2).map((tag, idx) => (
-                  <span key={idx} className={`text-xs px-2.5 py-1 rounded-full font-light ${
-                    isNight ? 'bg-purple-500/20 text-purple-200 border border-purple-500/20' : 'bg-purple-400/20 text-purple-800 border border-purple-400/20'
-                  }`}>
-                    {tag}
-                  </span>
-                ))}
+              <div className="flex flex-wrap justify-center gap-2 mb-3">
+                {market.tags.slice(0, 2).map((tag, idx) => {
+                  const tagLabel = typeof tag === 'string' ? tag : (tag.label || '');
+                  return (
+                    <span key={idx} className={`text-xs px-2.5 py-1 rounded-full font-light ${
+                      isNight ? 'bg-purple-500/20 text-purple-200 border border-purple-500/20' : 'bg-purple-400/20 text-purple-800 border border-purple-400/20'
+                    }`}>
+                      {tagLabel}
+                    </span>
+                  );
+                })}
               </div>
             )}
 
-            {/* Stats Grid */}
-            <div className={`${textColor} opacity-70 text-xs grid grid-cols-2 gap-3 font-light`}>
-              <div>
-                <span className="opacity-50 text-xs">Volume</span>
-                <div className="font-light">${(market.volume24h / 1000 || 0).toFixed(0)}K</div>
+            {/* Stats Grid - Enhanced with edge scores and proper bid/ask */}
+            <div className={`${textColor} opacity-70 text-xs space-y-2 font-light`}>
+              {/* Row 1: Volume & Bid/Ask or Edge Score */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="text-center">
+                  <span className="opacity-50 text-xs block">Volume</span>
+                  <div className="font-light">${(market.volume24h / 1000 || 0).toFixed(0)}K</div>
+                </div>
+                {market.oddsAnalysis?.bestBid !== undefined && market.oddsAnalysis?.bestBid !== null ? (
+                  <div className="text-center">
+                    <span className="opacity-50 text-xs block">Bid/Ask</span>
+                    <div className="font-light">
+                      {(market.oddsAnalysis.bestBid * 100).toFixed(1)}%/{(market.oddsAnalysis.bestAsk * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                ) : market.currentOdds?.yes ? (
+                  <div className="text-center">
+                    <span className="opacity-50 text-xs block">Mid Price</span>
+                    <div className="font-light">{(market.currentOdds.yes * 100).toFixed(1)}%</div>
+                  </div>
+                ) : null}
               </div>
-              <div>
-                <span className="opacity-50 text-xs">Bid</span>
-                <div className="font-light">{(market.currentOdds?.yes * 100 || 0).toFixed(1)}%</div>
-              </div>
+              
+              {/* Row 2: Edge Score & Confidence */}
+              {market.edgeScore !== undefined && market.confidence && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center">
+                    <span className="opacity-50 text-xs block">Edge Score</span>
+                    <div className={`font-light ${
+                      market.confidence === 'HIGH' ? 'text-green-400' :
+                      market.confidence === 'MEDIUM' ? 'text-yellow-400' :
+                      'text-red-400'
+                    }`}>
+                      {market.edgeScore.toFixed(1)}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <span className="opacity-50 text-xs block">Confidence</span>
+                    <div className={`font-light ${
+                      market.confidence === 'HIGH' ? 'text-green-400' :
+                      market.confidence === 'MEDIUM' ? 'text-yellow-400' :
+                      'text-red-400'
+                    }`}>
+                      {market.confidence}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </button>
         ))}

@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ConnectKitButton } from 'connectkit';
 import PageNav from '@/app/components/PageNav';
-import { polymarketService } from '@/services/polymarketService';
 
 const DiscoveryPage = () => {
   // State management
@@ -48,22 +47,26 @@ const DiscoveryPage = () => {
     setError(null);
     
     try {
-      let result;
-      
-      if (filters.search) {
-        // Search for weather-sensitive markets by location
-        result = await polymarketService.searchMarketsByLocation(filters.search);
-      } else {
-        // Get all active markets
-        result = await polymarketService.getAllMarkets();
+      // REFACTORED: Use new edge-ranked discovery via API
+      const response = await fetch('/api/markets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: filters.search || null, // Optional location filter
+          eventType: 'all',
+          confidence: 'all',
+          limitCount: 50 // More results for discovery page
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
       }
 
-      if (Array.isArray(result)) {
-        // If getAllMarkets returns array directly
-        setMarkets(result.slice(0, 50));
-      } else if (result.markets) {
-        // If searchMarketsByLocation returns object with markets
-        let filtered = result.markets;
+      const result = await response.json();
+      
+      if (result.success) {
+        let filtered = result.markets || [];
         
         // Apply volume filter
         if (filters.minVolume) {
@@ -166,10 +169,10 @@ const DiscoveryPage = () => {
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-12">
           <div className="mb-6 sm:mb-0">
             <h1 className={`text-4xl sm:text-4xl font-thin tracking-wide ${textColor}`}>
-              Discover Markets
+              Weather-Sensitive Edges
             </h1>
             <p className={`text-sm ${textColor} opacity-60 mt-3 font-light max-w-md`}>
-              Explore prediction markets with weather-sensitive edge opportunities
+              Top-ranked prediction markets with exploitable weather-related inefficiencies
             </p>
           </div>
           
@@ -194,18 +197,18 @@ const DiscoveryPage = () => {
           <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
             {/* Search Input */}
             <div className="flex-1">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by location (e.g. Chicago, Miami)..."
-                 className={`w-full px-4 py-2.5 rounded-xl text-sm font-light ${
-                    isNight 
-                      ? 'bg-white/10 border border-white/20 text-white placeholder-white/50' 
-                      : 'bg-black/10 border border-black/20 text-black placeholder-black/50'
-                  } focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all`}
-                disabled={isLoading}
-              />
+    <input
+      type="text"
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+      placeholder="Search by location (e.g. Chicago, Miami, New York)..."
+       className={`w-full px-4 py-2.5 rounded-xl text-sm font-light ${
+          isNight
+            ? 'bg-white/10 border border-white/20 text-white placeholder-white/50'
+            : 'bg-black/10 border border-black/20 text-black placeholder-black/50'
+        } focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all`}
+      disabled={isLoading}
+    />
             </div>
 
             {/* Category Filter */}
@@ -339,30 +342,118 @@ const DiscoveryPage = () => {
                       </div>
                     )}
 
-                    {/* Market Stats */}
+                    {/* Enhanced Market Stats */}
                     <div className="flex flex-wrap items-center gap-4 text-sm">
                       <div className={`${textColor} opacity-80`}>
                         <span className="opacity-60">Volume (24h):</span> ${(market.volume24h || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
                       </div>
-                      
-                      {market.bid !== undefined && (
+
+                      {/* Volume Trend Indicator */}
+                      {market.volumeMetrics?.volumeTrendDirection && market.volumeMetrics.volumeTrend !== undefined && (
                         <div className={`${textColor} opacity-80`}>
-                          <span className="opacity-60">Bid:</span> {(market.bid * 100).toFixed(1)}%
+                          <span className="opacity-60">Volume Trend:</span>
+                          <span className={`ml-1 ${
+                            market.volumeMetrics.volumeTrendDirection === 'increasing' ? 'text-green-400' :
+                            market.volumeMetrics.volumeTrendDirection === 'decreasing' ? 'text-red-400' :
+                            'text-gray-400'
+                          }`}>
+                            {market.volumeMetrics.volumeTrend > 10 ? '↗️' :
+                             market.volumeMetrics.volumeTrend < -10 ? '↘️' : '➡️'}
+                            {Math.abs(market.volumeMetrics.volumeTrend).toFixed(0)}%
+                          </span>
                         </div>
                       )}
-                      
-                      {market.ask !== undefined && (
+
+                      {/* Enhanced Odds Display */}
+                      {market.oddsAnalysis?.bestBid !== undefined && market.oddsAnalysis?.bestBid !== null && market.oddsAnalysis?.bestAsk !== undefined && market.oddsAnalysis?.bestAsk !== null ? (
+                       <>
+                          <div className={`${textColor} opacity-80`}>
+                            <span className="opacity-60">Best Bid:</span> {(market.oddsAnalysis.bestBid * 100).toFixed(1)}%
+                          </div>
+                          <div className={`${textColor} opacity-80`}>
+                            <span className="opacity-60">Best Ask:</span> {(market.oddsAnalysis.bestAsk * 100).toFixed(1)}%
+                          </div>
+                          {market.oddsAnalysis.spreadPercent > 0 && (
+                            <div className={`${textColor} opacity-80`}>
+                              <span className="opacity-60">Spread:</span>
+                              <span className={`ml-1 ${
+                                (market.oddsAnalysis.spreadPercent || 0) > 2 ? 'text-orange-400' : 'text-green-400'
+                              }`}>
+                                {market.oddsAnalysis.spreadPercent?.toFixed(1) || '0.0'}%
+                              </span>
+                            </div>
+                          )}
+                        </>
+                       ) : market.currentOdds ? (
+                        <>
+                          <div className={`${textColor} opacity-80`}>
+                            <span className="opacity-60">Yes:</span> {(market.currentOdds.yes * 100).toFixed(1)}%
+                          </div>
+                          <div className={`${textColor} opacity-80`}>
+                            <span className="opacity-60">No:</span> {(market.currentOdds.no * 100).toFixed(1)}%
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {market.bid !== undefined && (
+                            <div className={`${textColor} opacity-80`}>
+                              <span className="opacity-60">Bid:</span> {(market.bid * 100).toFixed(1)}%
+                            </div>
+                          )}
+                          {market.ask !== undefined && (
+                            <div className={`${textColor} opacity-80`}>
+                              <span className="opacity-60">Ask:</span> {(market.ask * 100).toFixed(1)}%
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* Market Depth Indicator */}
+                      {market.oddsAnalysis?.marketDepth?.marketDepth && (
                         <div className={`${textColor} opacity-80`}>
-                          <span className="opacity-60">Ask:</span> {(market.ask * 100).toFixed(1)}%
+                          <span className="opacity-60">Market Depth:</span>
+                          <span className={`ml-1 ${
+                            market.oddsAnalysis.marketDepth.marketDepth === 'deep' ? 'text-green-400' :
+                            market.oddsAnalysis.marketDepth.marketDepth === 'moderate' ? 'text-yellow-400' :
+                            'text-red-400'
+                          }`}>
+                            {market.oddsAnalysis.marketDepth.marketDepth}
+                          </span>
                         </div>
                       )}
-                      
+
                       {market.liquidity && (
                         <div className={`${textColor} opacity-80`}>
                           <span className="opacity-60">Liquidity:</span> ${(market.liquidity / 1000).toFixed(0)}K
                         </div>
                       )}
+
+                      {/* Enrichment source indicator */}
+                      {market.enrichmentSource && (
+                        <div className={`${textColor} opacity-60 text-xs`}>
+                          <span className="capitalize">{market.enrichmentSource.replace('_', ' ')}</span>
+                        </div>
+                      )}
                     </div>
+
+                    {/* Edge Score Display */}
+                    {market.edgeScore !== undefined && market.confidence && (
+                      <div className="flex items-center gap-3 mt-3">
+                        <div className="flex items-center gap-2">
+                          <div className={`px-2 py-1 rounded-full text-xs font-light border ${
+                            market.confidence === 'HIGH' ? 'bg-green-500/20 text-green-300 border-green-500/30' :
+                            market.confidence === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30' :
+                            'bg-red-500/20 text-red-300 border-red-500/30'
+                          }`}>
+                            {getConfidenceIcon(market.confidence)} Weather Edge: {market.confidence}
+                          </div>
+
+                          <div className={`text-xs ${textColor} opacity-60`}>
+                            Score: {market.edgeScore.toFixed(1)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Analyze Button */}

@@ -2,114 +2,180 @@ import { polymarketService } from '@/services/polymarketService';
 
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const { location, weatherData } = body;
-
-    // Validate required fields
-    if (!location) {
+    let body;
+    try {
+      body = await request.json();
+    } catch (parseErr) {
       return Response.json({
         success: false,
-        error: 'Missing required field: location'
+        error: 'Invalid JSON in request body',
+        timestamp: new Date().toISOString()
       }, { status: 400 });
     }
 
-    // IMPROVED: Use optimized market discovery with /events endpoint
-    // Falls back to getAllMarkets only if location doesn't match any events
-    const result = await polymarketService.searchMarketsByLocation(location);
+    const { location, weatherData, eventType, confidence, limitCount } = body;
+
+    // REFACTORED: New architecture - location is optional for personalization
+    // Primary discovery is now edge-ranked by weather sensitivity
+    const filters = {
+      weatherData,
+      eventType: eventType || 'all',
+      confidence: confidence || 'all',
+      location: location || null, // Optional for filtering
+      minVolume: 50000
+    };
+
+    const limit = limitCount || 8;
+
+    // Use new liquidity-first, edge-ranked discovery
+    let result;
+    try {
+      result = await polymarketService.getTopWeatherSensitiveMarkets(limit, filters);
+    } catch (serviceErr) {
+      console.error('Service error in getTopWeatherSensitiveMarkets:', serviceErr);
+      result = {
+        markets: [],
+        totalFound: 0,
+        error: serviceErr.message
+      };
+    }
 
     if (!result.markets || result.markets.length === 0) {
-      // Fallback: fetch weather-sensitive markets instead of all markets
-      console.log(`No location-specific markets found for "${location}", trying weather-sensitive markets...`);
+      // Fallback: return high-volume markets that still match user filters
+      console.log('No weather-sensitive markets found, trying fallback with user filters...');
+      let fallback;
+      try {
+        fallback = await polymarketService.buildMarketCatalog(10000);
+      } catch (fallbackErr) {
+        console.error('Fallback catalog error:', fallbackErr);
+        fallback = { markets: [] };
+      }
       
-      // Try weather-tagged markets first
-      const weatherMarkets = await polymarketService.getAllMarkets(['Weather']);
-      const allMarkets = weatherMarkets.length > 0 ? weatherMarkets : await polymarketService.getAllMarkets();
+      // Apply same filters as above to fallback markets
+      let fallbackFiltered = (fallback.markets || []);
       
-      // IMPROVED: Filter and sort intelligently
-      const filtered = (allMarkets || [])
-        .filter(m => {
-          // Filter by minimum volume
-          const vol = parseFloat(m.volume24h || m.volume || 0);
-          return vol >= 10000; // Lower threshold for fallback: $10k minimum
-        })
-        .sort((a, b) => {
-          // Sort by volume (descending)
-          return (parseFloat(b.volume24h || b.volume || 0) - parseFloat(a.volume24h || a.volume || 0));
-        })
-        .slice(0, 8); // Limit to 8 markets for better UX
+      // Filter by event type if specified
+      if (filters.eventType && filters.eventType !== 'all') {
+        fallbackFiltered = fallbackFiltered.filter(m => m.eventType === filters.eventType);
+      }
       
-      const transformed = filtered.map(m => ({
-        marketID: m.tokenID || m.id,
-        title: m.title || m.question,
-        description: m.description,
-        location: polymarketService.extractLocation(m.title || m.question),
-        currentOdds: {
-          yes: parseFloat(m.outcomePrices?.[0] || m.bid || m.yesPrice || 0.5),
-          no: parseFloat(m.outcomePrices?.[1] || m.ask || m.noPrice || 0.5)
-        },
-        volume24h: parseFloat(m.volume24h || m.volume || 0),
-        liquidity: parseFloat(m.liquidity || 0),
-        tags: m.tags || [],
-        weatherRelevance: 0 // No weather data, relevance is 0
-      }));
+      // Filter by confidence if specified
+      if (filters.confidence && filters.confidence !== 'all') {
+        // Fallback markets are all 'LOW', so only show if user wants LOW
+        fallbackFiltered = fallbackFiltered.filter(m => 
+          filters.confidence === 'LOW' || filters.confidence === 'all'
+        );
+      }
+      
+      const fallbackMarkets = fallbackFiltered
+         .slice(0, limit)
+         .map(m => {
+           // Ensure odds are always valid (use oddsAnalysis as primary, fallback to currentOdds, finally default to 0.5)
+           const bestBid = m.oddsAnalysis?.bestBid ?? m.orderBookMetrics?.bestBid ?? m.currentOdds?.no ?? 0.5;
+           const bestAsk = m.oddsAnalysis?.bestAsk ?? m.orderBookMetrics?.bestAsk ?? m.currentOdds?.yes ?? 0.5;
+           
+           const validOdds = {
+             yes: bestAsk,
+             no: bestBid
+           };
+           
+           const validOddsAnalysis = m.oddsAnalysis || {
+             bestBid,
+             bestAsk,
+             spread: m.orderBookMetrics?.spread || 0,
+             spreadPercent: m.orderBookMetrics?.spreadPercent || 0
+           };
+           
+           return {
+             marketID: m.marketID,
+             title: m.title,
+             description: m.description,
+             location: m.location,
+             currentOdds: validOdds,
+             volume24h: m.volume24h,
+             liquidity: m.liquidity,
+             tags: m.tags,
+             eventType: m.eventType,
+             edgeScore: 0,
+             confidence: 'LOW',
+             teams: m.teams,
+             
+             // Include enriched data from buildMarketCatalog fallback
+             bid: m.bid || validOdds.no,
+             ask: m.ask || validOdds.yes,
+             orderBookMetrics: m.orderBookMetrics,
+             volumeMetrics: m.volumeMetrics,
+             marketEfficiency: m.marketEfficiency,
+             enrichmentSource: m.enrichmentSource,
+             enriched: m.enriched,
+             oddsAnalysis: validOddsAnalysis,
+             resolutionDate: m.resolutionDate,
+             isWeatherSensitive: false
+           };
+         });
 
       return Response.json({
         success: true,
-        markets: transformed,
-        location,
-        message: transformed.length > 0 
-          ? `No location match found. Showing weather-sensitive markets.`
-          : `No weather-sensitive markets available for this location.`,
-        totalFound: transformed.length,
+        markets: fallbackMarkets,
+        message: fallbackMarkets.length === 0 
+          ? 'No markets match your filters. Try adjusting them.'
+          : 'Showing high-volume markets (no weather edges detected)',
+        totalFound: fallbackMarkets.length,
         cached: false,
         timestamp: new Date().toISOString()
       });
     }
 
-    // Transform markets to API response format
-    // IMPROVED: Use real weatherData for relevance scoring
-    const transformedMarkets = result.markets
-      .map(market => {
-        const title = market.title || market.question || '';
-        const location = polymarketService.extractLocation(title);
-        const metadata = polymarketService.extractMarketMetadata(title);
-        
-        // Use actual weather data for relevance scoring (not mock)
-        const weatherRelevance = polymarketService.assessWeatherRelevance(
-          market,
-          weatherData || { current: {} } // Empty fallback if no weather data
-        );
+    // Transform to API response format - include all enriched data
+     const transformedMarkets = result.markets.map(m => {
+       // Ensure odds are always valid (use oddsAnalysis as primary, fallback to currentOdds, finally default to 0.5)
+       const bestBid = m.oddsAnalysis?.bestBid ?? m.orderBookMetrics?.bestBid ?? m.currentOdds?.no ?? 0.5;
+       const bestAsk = m.oddsAnalysis?.bestAsk ?? m.orderBookMetrics?.bestAsk ?? m.currentOdds?.yes ?? 0.5;
+       
+       const validOdds = {
+         yes: bestAsk,
+         no: bestBid
+       };
+       
+       const validOddsAnalysis = m.oddsAnalysis || {
+         bestBid,
+         bestAsk,
+         spread: m.orderBookMetrics?.spread || 0,
+         spreadPercent: m.orderBookMetrics?.spreadPercent || 0
+       };
+       
+       return {
+         marketID: m.marketID,
+         title: m.title,
+         description: m.description,
+         location: m.location,
+         currentOdds: validOdds,
+         volume24h: m.volume24h,
+         liquidity: m.liquidity,
+         tags: m.tags,
+         resolutionDate: m.resolutionDate,
+         eventType: m.eventType,
+         teams: m.teams,
+         edgeScore: m.edgeScore,
+         edgeFactors: m.edgeFactors,
+         confidence: m.confidence,
+         weatherContext: m.weatherContext,
+         isWeatherSensitive: m.isWeatherSensitive,
 
-        return {
-          marketID: market.tokenID || market.id,
-          title,
-          description: market.description,
-          location,
-          currentOdds: {
-            yes: parseFloat(market.outcomePrices?.[0] || market.bid || market.yesPrice || 0.5),
-            no: parseFloat(market.outcomePrices?.[1] || market.ask || market.noPrice || 0.5)
-          },
-          volume24h: parseFloat(market.volume24h || market.volume || 0),
-          liquidity: parseFloat(market.liquidity || 0),
-          endDate: market.endDate || market.expiresAt,
-          tags: market.tags || [],
-          weatherRelevance: weatherRelevance.score,
-          weatherContext: weatherRelevance.weatherContext,
-          teams: metadata.teams,
-          eventType: metadata.event_type
-        };
-      })
-      .filter(m => m.volume24h >= 50000) // IMPROVED: Filter low-volume markets
-      .sort((a, b) => {
-        // IMPROVED: Sort by weather relevance first, then volume
-        const relevanceDiff = (b.weatherRelevance || 0) - (a.weatherRelevance || 0);
-        if (relevanceDiff !== 0) return relevanceDiff;
-        return (b.volume24h || 0) - (a.volume24h || 0);
-      })
-      .slice(0, 8); // IMPROVED: Limit to 8 markets for better UX
+         // Include enriched market data for richer UI
+         bid: m.bid || validOdds.no, // fallback for old UI compatibility
+         ask: m.ask || validOdds.yes, // fallback for old UI compatibility
+         orderBookMetrics: m.orderBookMetrics,
+         volumeMetrics: m.volumeMetrics,
+         marketEfficiency: m.marketEfficiency,
+         enrichmentSource: m.enrichmentSource,
+         enriched: m.enriched,
+         oddsAnalysis: validOddsAnalysis,
+         rawMarket: m.rawMarket
+       };
+     });
 
-    // IMPROVEMENT: Pre-cache market details for top 5 markets
-    // Warm up the cache so analysis requests don't need to fetch details again
+    // Pre-cache market details for top 5 (fire and forget)
     const top5Ids = transformedMarkets.slice(0, 5).map(m => m.marketID);
     Promise.allSettled(
       top5Ids.map(id => polymarketService.getMarketDetails(id))
@@ -118,7 +184,6 @@ export async function POST(request) {
     return Response.json({
       success: true,
       markets: transformedMarkets,
-      location: result.location,
       totalFound: result.totalFound,
       cached: result.cached,
       timestamp: new Date().toISOString()
@@ -139,85 +204,73 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     
-    // If no query params, return service status (preserving existing behavior)
+    // If no query params, return service status
     if (!searchParams.toString()) {
-      const status = polymarketService.getStatus();
+      const status = polymarketService.getStatus ? polymarketService.getStatus() : { available: true, baseURL: 'https://gamma-api.polymarket.com' };
       return Response.json({
-        service: 'Polymarket Data Service',
+        service: 'Polymarket Data Service (Edge-Ranked Discovery)',
         status: status.available ? 'available' : 'unavailable',
-        cache: status.cache || { size: status.cacheSize, duration: status.cacheDuration },
         baseURL: status.baseURL,
         timestamp: new Date().toISOString()
       });
     }
 
-    // ENHANCEMENT: Roadmap-aligned market discovery
+    // REFACTORED: Edge-ranked discovery parameters
     const category = searchParams.get('category') || 'all';
-    const minVolume = parseInt(searchParams.get('minVolume') || '10000');
-    const search = searchParams.get('search');
+    const minVolume = parseInt(searchParams.get('minVolume') || '50000');
+    const location = searchParams.get('location') || null;
+    const eventType = searchParams.get('eventType') || 'all';
+    const confidence = searchParams.get('confidence') || 'all';
+    const limit = parseInt(searchParams.get('limit') || '20');
 
-    let markets = [];
-    let cached = false;
-
-    if (search) {
-      // Search by location using enhanced polymarketService
-      const result = await polymarketService.searchMarketsByLocation(search);
-      markets = result.markets || [];
-      cached = result.cached || false;
-    } else {
-      // Get all markets with category filtering
-      const tags = category !== 'all' ? [category] : ['Sports', 'Weather'];
-      const allMarkets = await polymarketService.getAllMarkets(tags);
-      markets = allMarkets;
+    // Use new discovery method
+    let result;
+    try {
+      result = await polymarketService.getTopWeatherSensitiveMarkets(limit, {
+        minVolume,
+        location,
+        eventType,
+        confidence
+      });
+    } catch (serviceErr) {
+      console.error('Service error in GET /api/markets:', serviceErr);
+      result = { markets: [], totalFound: 0, error: serviceErr.message };
     }
 
-    // ENHANCEMENT: Apply location extraction and weather relevance (Week 1 roadmap)
-    const enhancedMarkets = markets.map(market => {
-      const title = market.title || market.question || '';
-      const location = polymarketService.extractLocation(title);
-      const metadata = polymarketService.extractMarketMetadata(title);
-      
-      // Mock weather for relevance scoring (will be real weather in full implementation)
-      const mockWeatherData = { current: { temp_f: 70 } };
-      const weatherRelevance = polymarketService.assessWeatherRelevance(market, mockWeatherData);
+    const markets = (result.markets || []).map(m => ({
+      id: m.marketID,
+      marketID: m.marketID,
+      title: m.title,
+      description: m.description,
+      location: m.location,
+      currentOdds: m.currentOdds,
+      volume24h: m.volume24h,
+      liquidity: m.liquidity,
+      tags: m.tags,
+      eventType: m.eventType,
+      teams: m.teams,
+      edgeScore: m.edgeScore,
+      confidence: m.confidence,
+      isWeatherSensitive: m.isWeatherSensitive,
 
-      return {
-        id: market.tokenID || market.id,
-        title,
-        description: market.description,
-        location, // ← Enhanced with location extraction
-        currentOdds: {
-          yes: parseFloat(market.outcomePrices?.[0] || market.yesPrice || 0.5),
-          no: parseFloat(market.outcomePrices?.[1] || market.noPrice || 0.5)
-        },
-        volume24h: parseFloat(market.volume || market.volume24h || '0'),
-        liquidity: parseFloat(market.liquidity || '0'),
-        endDate: market.endDate || market.expiresAt,
-        category: market.tags?.join(', ') || 'Sports',
-        weatherRelevance: weatherRelevance.score, // ← Enhanced relevance scoring
-        teams: metadata.teams,
-        eventType: metadata.event_type
-      };
-    });
-
-    // Filter by minimum volume and weather relevance
-    const filteredMarkets = enhancedMarkets.filter(market => {
-      const volumeCheck = market.volume24h >= minVolume;
-      const relevanceCheck = market.weatherRelevance > 0 || search; // Include all if searching
-      return volumeCheck && relevanceCheck;
-    });
-
-    // Sort by volume (roadmap default)
-    filteredMarkets.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
-
-    // Limit to prevent overload
-    const limitedMarkets = filteredMarkets.slice(0, 20);
+      // Include enriched market data for richer UI
+      bid: m.bid,
+      ask: m.ask,
+      orderBookMetrics: m.orderBookMetrics,
+      volumeMetrics: m.volumeMetrics,
+      marketEfficiency: m.marketEfficiency,
+      enrichmentSource: m.enrichmentSource,
+      enriched: m.enriched,
+      oddsAnalysis: m.oddsAnalysis,
+      rawMarket: m.rawMarket
+    }));
 
     return Response.json({
-      markets: limitedMarkets,
-      total: limitedMarkets.length,
-      filters: { category, minVolume, search },
-      cached,
+      markets,
+      total: markets.length,
+      totalFound: result.totalFound,
+      filters: { category, minVolume, location, eventType, confidence },
+      cached: result.cached,
       timestamp: new Date().toISOString()
     });
 
