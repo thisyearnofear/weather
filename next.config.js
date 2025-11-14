@@ -10,6 +10,8 @@ const nextConfig = {
 
   // Performance optimizations
   experimental: {
+    // Disable Turbopack to fix bundle processing issues
+    turbopack: false,
     // Enable scroll restoration
     scrollRestoration: true,
   },
