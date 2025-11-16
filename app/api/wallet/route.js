@@ -1,47 +1,26 @@
 import { ethers } from 'ethers';
 
-// USDC contract on Polygon
-const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A928C4bc8b36c3d969E5';
-const POLYMARKET_EXCHANGE = '0x4d97DCd97eB9c5A19a78a33d12fD5eff48730B91'; // CLOB address on Polygon
-
-// USDC ABI - minimal interface for balance and allowance
-const USDC_ABI = [
-  'function balanceOf(address owner) view returns (uint256)',
-  'function allowance(address owner, address spender) view returns (uint256)',
-  'function approve(address spender, uint256 amount) returns (bool)',
-  'function decimals() view returns (uint8)'
-];
-
 /**
- * Get ethers provider for Polygon
+ * Get ethers provider for BNBChain
  */
 function getProvider() {
-  const rpcUrl = process.env.NEXT_PUBLIC_ARBITRUM_RPC_URL ||
-    'https://polygon-rpc.com/';
-
+  const rpcUrl = process.env.NEXT_PUBLIC_BNB_RPC_URL || 'https://bsc-testnet.publicnode.com';
   return new ethers.JsonRpcProvider(rpcUrl);
 }
 
 /**
- * Check USDC balance for a wallet
+ * Check native BNB balance for a wallet
  */
 async function checkBalance(walletAddress) {
   try {
     const provider = getProvider();
-    const usdcContract = new ethers.Contract(
-      USDC_ADDRESS,
-      USDC_ABI,
-      provider
-    );
-
-    const balance = await usdcContract.balanceOf(walletAddress);
-    const decimals = await usdcContract.decimals();
-    const balanceFormatted = ethers.formatUnits(balance, decimals);
+    const balance = await provider.getBalance(walletAddress);
+    const balanceFormatted = ethers.formatEther(balance);
 
     return {
       raw: balance.toString(),
-      formatted: parseFloat(balanceFormatted).toFixed(2),
-      decimals
+      formatted: parseFloat(balanceFormatted).toFixed(6),
+      decimals: 18
     };
   } catch (error) {
     console.error(`Error checking balance for ${walletAddress}:`, error.message);
@@ -49,33 +28,7 @@ async function checkBalance(walletAddress) {
   }
 }
 
-/**
- * Check USDC allowance for Polymarket CLOB
- */
-async function checkAllowance(walletAddress) {
-  try {
-    const provider = getProvider();
-    const usdcContract = new ethers.Contract(
-      USDC_ADDRESS,
-      USDC_ABI,
-      provider
-    );
-
-    const allowance = await usdcContract.allowance(walletAddress, POLYMARKET_EXCHANGE);
-    const decimals = await usdcContract.decimals();
-    const allowanceFormatted = ethers.formatUnits(allowance, decimals);
-
-    return {
-      raw: allowance.toString(),
-      formatted: parseFloat(allowanceFormatted).toFixed(2),
-      decimals,
-      spender: POLYMARKET_EXCHANGE
-    };
-  } catch (error) {
-    console.error(`Error checking allowance for ${walletAddress}:`, error.message);
-    return null;
-  }
-}
+// No allowance required for native BNB
 
 /**
  * POST /api/wallet
@@ -107,13 +60,10 @@ export async function POST(request) {
       );
     }
 
-    // Check balance and allowance in parallel
-    const [balanceData, allowanceData] = await Promise.all([
-      checkBalance(walletAddress),
-      checkAllowance(walletAddress)
-    ]);
+    // Check balance
+    const balanceData = await checkBalance(walletAddress);
 
-    if (!balanceData || !allowanceData) {
+    if (!balanceData) {
       return Response.json(
         {
           success: false,
@@ -131,16 +81,10 @@ export async function POST(request) {
           balance: {
             raw: balanceData.raw,
             formatted: balanceData.formatted,
-            symbol: 'USDC'
+            symbol: 'BNB'
           },
-          allowance: {
-            raw: allowanceData.raw,
-            formatted: allowanceData.formatted,
-            symbol: 'USDC',
-            spender: allowanceData.spender
-          },
-          canTrade: parseFloat(allowanceData.formatted) > 0 && parseFloat(balanceData.formatted) > 0,
-          needsApproval: parseFloat(allowanceData.formatted) === 0
+          canTrade: parseFloat(balanceData.formatted) > 0,
+          needsApproval: false
         },
         timestamp: new Date().toISOString()
       },
@@ -174,16 +118,10 @@ export async function GET(request) {
         service: 'Wallet Status Service',
         status: 'available',
         capabilities: {
-          checkBalance: true,
-          checkAllowance: true,
-          getApprovalData: true
+          checkBalance: true
         },
         usageExample: 'POST /api/wallet with { walletAddress: "0x..." }',
-        networks: ['Polygon'],
-        contracts: {
-          usdc: USDC_ADDRESS,
-          polymarketClob: POLYMARKET_EXCHANGE
-        }
+        networks: ['BNBChain']
       });
     }
 

@@ -29,14 +29,14 @@ export const tradingService = {
   },
 
   /**
-   * Calculate order cost (base cost + fees)
+   * Calculate order cost (BNB stake)
    */
   calculateOrderCost(price, size) {
     if (!price || !size) return null;
     const baseCost = price * size;
     return {
-      baseCost: baseCost.toFixed(2),
-      total: baseCost.toFixed(2) // Fee would be added here in full version
+      baseCost: baseCost.toFixed(6),
+      total: baseCost.toFixed(6)
     };
   },
 
@@ -58,7 +58,7 @@ export const tradingService = {
     if (walletStatus && parseFloat(walletStatus.balance.formatted) < parseFloat(orderCost.total)) {
       return {
         valid: false,
-        error: `Insufficient balance. Need ${orderCost.total} USDC, have ${walletStatus.balance.formatted} USDC`
+        error: `Insufficient balance. Need ${orderCost.total} BNB, have ${walletStatus.balance.formatted} BNB`
       };
     }
 
@@ -66,7 +66,7 @@ export const tradingService = {
   },
 
   /**
-   * Submit order to Polymarket
+   * Submit prediction to BNBChain (returns tx request or tx hash)
    */
   async submitOrder(order, walletStatus) {
     const validation = this.validateOrder(order, walletStatus);
@@ -75,7 +75,7 @@ export const tradingService = {
     }
 
     try {
-      const response = await fetch('/api/orders', {
+      const response = await fetch('/api/predictions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -83,12 +83,8 @@ export const tradingService = {
           price: parseFloat(order.price),
           side: order.side,
           size: parseFloat(order.size),
-          feeRateBps: 0,
-          walletData: {
-            address: order.walletAddress,
-            signer: 'wagmi',
-            usdcBalance: walletStatus?.balance?.formatted || '0'
-          }
+          walletAddress: order.walletAddress,
+          chainId: order.chainId
         })
       });
 
@@ -96,8 +92,10 @@ export const tradingService = {
       if (data.success) {
         return {
           success: true,
-          orderID: data.orderID,
-          order: data.order
+          orderID: data.txHash || data.orderID || 'client-sign',
+          order: data.order,
+          txRequest: data.txRequest,
+          mode: data.mode
         };
       }
       return { success: false, error: data.error || 'Order submission failed' };

@@ -8,7 +8,8 @@ export default function OrderForm({
   walletAddress,
   isConnected,
   onSuccess,
-  isNight
+  isNight,
+  chainId
 }) {
   const [orderForm, setOrderForm] = useState({
     side: 'BUY',
@@ -49,7 +50,8 @@ export default function OrderForm({
       price: orderForm.price,
       side: orderForm.side,
       size: orderForm.size,
-      walletAddress
+      walletAddress,
+      chainId
     };
 
     const result = await tradingService.submitOrder(order, walletStatus);
@@ -82,12 +84,12 @@ export default function OrderForm({
         <div className={`${bgColor} rounded-lg p-3 border text-xs ${textColor}`}>
           <div className="flex justify-between mb-2">
             <span className="opacity-70">Balance</span>
-            <span className="font-light">{walletStatus.balance.formatted} USDC</span>
+            <span className="font-light">{walletStatus.balance.formatted} BNB</span>
           </div>
           <div className="flex justify-between">
             <span className="opacity-70">Status</span>
             <span className={walletStatus.canTrade ? 'text-green-400' : 'text-red-400'}>
-              {walletStatus.canTrade ? 'Ready' : 'Approval needed'}
+              {walletStatus.canTrade ? 'Ready' : 'Insufficient balance'}
             </span>
           </div>
         </div>
@@ -161,13 +163,13 @@ export default function OrderForm({
 
       {/* Cost Summary */}
       {orderCost && (
-        <div className={`${bgColor} rounded-lg p-3 border text-xs ${textColor}`}>
-          <div className="flex justify-between">
-            <span className="opacity-70">Total Cost</span>
-            <span className="font-light">{orderCost.total} USDC</span>
+          <div className={`${bgColor} rounded-lg p-3 border text-xs ${textColor}`}>
+            <div className="flex justify-between">
+              <span className="opacity-70">Total Cost</span>
+              <span className="font-light">{orderCost.total} BNB</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Error */}
       {error && (
@@ -182,12 +184,12 @@ export default function OrderForm({
         disabled={isSubmitting || !walletStatus?.canTrade || !orderForm.price || !orderForm.size}
         className={`w-full py-2 rounded-lg text-sm font-light transition-all disabled:opacity-50 ${buttonBgColor} ${textColor}`}
       >
-        {isSubmitting ? 'Submitting...' : 'Submit Order'}
+        {isSubmitting ? 'Submitting...' : 'Place Prediction'}
       </button>
 
       {/* Disclaimer */}
       <div className={`text-xs ${textColor} opacity-40 text-center`}>
-        Trades are final. Always verify amounts before confirming.
+        Predictions are final. Always verify amounts before confirming.
       </div>
     </form>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useChainId } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { weatherService } from '@/services/weatherService';
 import { aiService } from '@/services/aiService';
@@ -13,6 +13,7 @@ import Scene3D from '@/components/Scene3D';
 
 export default function AIPage() {
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
 
   // Weather state
   const [weatherData, setWeatherData] = useState(null);
@@ -474,6 +475,7 @@ export default function AIPage() {
                   isConnected={isConnected}
                   onSuccess={handleOrderSuccess}
                   isNight={nightStatus}
+                  chainId={chainId}
                 />
               </div>
             )}
