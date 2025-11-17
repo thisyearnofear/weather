@@ -109,6 +109,14 @@ export async function POST(request) {
 
     const cfg = getChainConfig(chainId)
     if (!cfg.address) {
+      const idNum = Number(chainId || 0)
+      if (idNum === 137 || idNum === 80001) {
+        return Response.json({
+          success: true,
+          mode: 'unsupported_chain',
+          note: 'Polygon ERC20 receipt not configured. Deploy and set PREDICTION_CONTRACT_ADDRESS_POLYGON to enable.'
+        }, { status: 200 })
+      }
       const txReq = buildTxData('0x0000000000000000000000000000000000000000', {
         marketId: Number(marketID),
         side,

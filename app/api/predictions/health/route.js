@@ -72,6 +72,13 @@ export async function GET(request) {
     const chunk = Math.min(5000, Math.max(100, Number(searchParams.get('chunk') || 1000)))
     const maxEvents = Math.min(25, Math.max(1, Number(searchParams.get('max') || 10)))
 
+    const cacheKey = `${chainId}:${lookback}:${chunk}:${maxEvents}`
+    const now = Date.now()
+    const cached = _cache.get(cacheKey)
+    if (cached && now - cached.time < TTL_MS) {
+      return Response.json(cached.data, { status: 200 })
+    }
+
     const cfg = getChainConfig(chainId)
     if (!cfg.address) {
       return Response.json({ success: false, error: 'Missing contract address for chain', chainId }, { status: 400 })
@@ -94,7 +101,7 @@ export async function GET(request) {
       events = await fetchRecentEvents(provider, cfg.address, iface, topic, latest, lookback, chunk, maxEvents)
     } catch (_) {}
 
-    return Response.json({
+    const payload = {
       success: true,
       chainId,
       address: cfg.address,
@@ -103,7 +110,9 @@ export async function GET(request) {
       paused: !!isPaused,
       recentEvents: events,
       meta: { latestBlock: Number(latest), lookback, chunk, maxEvents }
-    }, { status: 200 })
+    }
+    _cache.set(cacheKey, { time: now, data: payload })
+    return Response.json(payload, { status: 200 })
   } catch (err) {
     return Response.json({ success: false, error: err.message }, { status: 500 })
   }
@@ -119,3 +128,5 @@ export async function OPTIONS() {
     }
   })
 }
+const _cache = new Map()
+const TTL_MS = 30000

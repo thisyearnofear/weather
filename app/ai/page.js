@@ -10,6 +10,7 @@ import AnalysisDisplay from './components/AnalysisDisplay';
 import OrderForm from './components/OrderForm';
 import PageNav from '@/app/components/PageNav';
 import Scene3D from '@/components/Scene3D';
+import RecentPredictions from '@/components/RecentPredictions';
 
 export default function AIPage() {
   const { address, isConnected } = useAccount();
@@ -478,22 +479,22 @@ export default function AIPage() {
               </div>
             )}
 
-            {/* Order Form */}
-            {showOrderForm && selectedMarket && (
-              <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-96 overflow-y-auto`}>
-                <h3 className={`text-lg font-light ${textColor} mb-4`}>
-                  Place Order - {selectedMarket.title}
-                </h3>
-                <OrderForm
-                  market={selectedMarket}
-                  walletAddress={address}
-                  isConnected={isConnected}
-                  onSuccess={handleOrderSuccess}
-                  isNight={nightStatus}
-                  chainId={chainId}
-                />
-              </div>
-            )}
+          {/* Order Form */}
+          {showOrderForm && selectedMarket && (
+            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-96 overflow-y-auto`}>
+              <h3 className={`text-lg font-light ${textColor} mb-4`}>
+                Place Order - {selectedMarket.title}
+              </h3>
+              <OrderForm
+                market={selectedMarket}
+                walletAddress={address}
+                isConnected={isConnected}
+                onSuccess={handleOrderSuccess}
+                isNight={nightStatus}
+                chainId={chainId}
+              />
+            </div>
+          )}
 
             {/* Order Success */}
             {orderResult?.success && (
@@ -503,11 +504,23 @@ export default function AIPage() {
                   : 'bg-green-400/20 border-green-400/30'
               }`}>
                 <p className={`text-sm ${textColor}`}>
-                  Order submitted successfully! ID: {orderResult.orderID}
+                  Order submitted successfully!
                 </p>
+                {orderResult.orderID && String(orderResult.orderID).startsWith('0x') && (
+                  <a
+                    href={`https://bscscan.com/tx/${orderResult.orderID}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`${textColor} opacity-70 text-xs underline`}
+                  >
+                    View on BSCScan
+                  </a>
+                )}
               </div>
             )}
           </div>
+
+          <RecentPredictions chainId={chainId} isNight={nightStatus} />
         </div>
       </main>
       </div>

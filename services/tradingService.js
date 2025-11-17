@@ -7,14 +7,14 @@ export const tradingService = {
   /**
    * Check wallet USDC balance and trading approval status
    */
-  async checkWalletStatus(walletAddress) {
+  async checkWalletStatus(walletAddress, chainId) {
     if (!walletAddress) return null;
 
     try {
       const response = await fetch('/api/wallet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress })
+        body: JSON.stringify({ walletAddress, chainId })
       });
 
       const data = await response.json();

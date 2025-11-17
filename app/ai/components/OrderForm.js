@@ -21,6 +21,8 @@ export default function OrderForm({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feeBps, setFeeBps] = useState(null);
+  const [feeFormatted, setFeeFormatted] = useState(null);
 
   useEffect(() => {
     if (isConnected && walletAddress) {
@@ -28,9 +30,23 @@ export default function OrderForm({
     }
   }, [walletAddress, isConnected]);
 
+  useEffect(() => {
+    const fetchFee = async () => {
+      try {
+        const cid = chainId || 56;
+        const res = await fetch(`/api/predictions/health?chainId=${cid}`);
+        const json = await res.json();
+        if (json && json.success) {
+          setFeeBps(json.feeBps);
+        }
+      } catch (_) {}
+    };
+    fetchFee();
+  }, [chainId]);
+
   const checkWalletStatus = async () => {
     setIsLoading(true);
-    const result = await tradingService.checkWalletStatus(walletAddress);
+    const result = await tradingService.checkWalletStatus(walletAddress, chainId);
     if (result.success) {
       setWalletStatus(result.wallet);
     } else {
@@ -40,6 +56,20 @@ export default function OrderForm({
   };
 
   const orderCost = tradingService.calculateOrderCost(orderForm.price, orderForm.size);
+
+  useEffect(() => {
+    try {
+      if (feeBps && orderForm.size) {
+        const stakeWei = ethers.parseEther(String(orderForm.size));
+        const feeWei = (stakeWei * BigInt(feeBps)) / 10000n;
+        setFeeFormatted(ethers.formatEther(feeWei));
+      } else {
+        setFeeFormatted(null);
+      }
+    } catch (_) {
+      setFeeFormatted(null);
+    }
+  }, [feeBps, orderForm.size]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -97,6 +127,13 @@ export default function OrderForm({
   const bgColor = isNight ? 'bg-white/10 border-white/20' : 'bg-black/10 border-black/20';
   const inputBgColor = isNight ? 'bg-white/10 border-white/20' : 'bg-black/10 border-black/20';
   const buttonBgColor = isNight ? 'bg-blue-500/30 hover:bg-blue-500/50' : 'bg-blue-400/30 hover:bg-blue-400/50';
+  const nativeSymbol = (() => {
+    const id = Number(chainId || 56);
+    if (id === 42161 || id === 421614) return 'ETH';
+    if (id === 137 || id === 80001) return 'MATIC';
+    return 'BNB';
+  })();
+  const isPolygon = Number(chainId) === 137 || Number(chainId) === 80001;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -105,7 +142,7 @@ export default function OrderForm({
         <div className={`${bgColor} rounded-lg p-3 border text-xs ${textColor}`}>
           <div className="flex justify-between mb-2">
             <span className="opacity-70">Balance</span>
-            <span className="font-light">{walletStatus.balance.formatted} BNB</span>
+            <span className="font-light">{walletStatus.balance.formatted} {walletStatus.balance.symbol || nativeSymbol}</span>
           </div>
           <div className="flex justify-between">
             <span className="opacity-70">Status</span>
@@ -183,14 +220,28 @@ export default function OrderForm({
       </div>
 
       {/* Cost Summary */}
-      {orderCost && (
-          <div className={`${bgColor} rounded-lg p-3 border text-xs ${textColor}`}>
-            <div className="flex justify-between">
-              <span className="opacity-70">Total Cost</span>
-              <span className="font-light">{orderCost.total} BNB</span>
+      {(orderCost || feeFormatted) && (
+        <div className={`${bgColor} rounded-lg p-3 border text-xs ${textColor}`}>
+          {orderCost && (
+            <div className="flex justify-between mb-2">
+              <span className="opacity-70">Stake Size</span>
+              <span className="font-light">{orderForm.size} {nativeSymbol}</span>
             </div>
-          </div>
-        )}
+          )}
+          {typeof feeBps === 'number' && (
+            <div className="flex justify-between mb-2">
+              <span className="opacity-70">Fee Rate</span>
+              <span className="font-light">{feeBps} bps</span>
+            </div>
+          )}
+          {feeFormatted && (
+            <div className="flex justify-between">
+              <span className="opacity-70">Fee Sent</span>
+              <span className="font-light">{feeFormatted} BNB</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -202,7 +253,7 @@ export default function OrderForm({
       {/* Submit Button */}
       <button
         type="submit"
-        disabled={isSubmitting || !walletStatus?.canTrade || !orderForm.price || !orderForm.size}
+        disabled={isSubmitting || !walletStatus?.canTrade || !orderForm.price || !orderForm.size || isPolygon}
         className={`w-full py-2 rounded-lg text-sm font-light transition-all disabled:opacity-50 ${buttonBgColor} ${textColor}`}
       >
         {isSubmitting ? 'Submitting...' : 'Place Prediction'}
@@ -210,7 +261,7 @@ export default function OrderForm({
 
       {/* Disclaimer */}
       <div className={`text-xs ${textColor} opacity-40 text-center`}>
-        Predictions are final. Always verify amounts before confirming.
+        {isPolygon ? 'Polygon ERC20 receipt not yet enabled.' : 'Only the fee is sent on-chain; stake is recorded in the receipt.'}
       </div>
     </form>
   );
