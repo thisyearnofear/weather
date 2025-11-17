@@ -1,10 +1,24 @@
-# 🌤️ Fourcast: AI-Powered Prediction Market Intelligence
+# 🌤️ Fourcast: AI-Powered Weather Edge Analytics on BNB Chain
 
-An AI agent that analyzes weather forecasts alongside prediction markets (Polymarket) to surface potential mispricings in sports, political, and event outcome markets where weather conditions create information asymmetries.
+**Built for BNB Chain Prediction Markets Hackathon**
+
+An AI intelligence layer that analyzes weather forecasts to identify mispriced prediction markets. Uses BNB Chain for low-cost prediction receipts and performance tracking, while leveraging Polymarket's established liquidity for market data.
 
 ## 🎯 Core Value Proposition
 
-Weather impacts outcomes (sports performance, voter turnout, corporate earnings), but retail prediction market participants often under-weight these factors. This app uses AI to flag opportunities where current odds may not reflect weather-adjusted probabilities.
+Weather impacts billions in outcomes (sports performance, voter turnout, event logistics), but retail prediction market participants systematically under-weight these factors. Fourcast uses AI to detect information asymmetries where current odds don't reflect weather-adjusted probabilities.
+
+## 🔗 Why BNB Chain?
+
+**Low Transaction Costs:** Weather predictions require frequent on-chain receipts. BNB Chain's <$0.10 gas fees enable sustainable micro-predictions at scale.
+
+**Fast Finality:** 3-second block time means instant prediction confirmation for time-sensitive weather markets.
+
+**Liquidity Access:** BNB ecosystem provides capital infrastructure for weather-sensitive markets.
+
+**Smart Architecture:** Rather than bootstrapping our own prediction markets (expensive, slow), we use BNB Chain for what it does best—low-cost, high-speed analytics tracking—while pulling market data from established platforms like Polymarket.
+
+See [BNB Chain Architecture](./docs/BNB_CHAIN_ARCHITECTURE.md) for our hybrid design rationale.
 
 ## 🚀 MVP Scope (No Model Training Required)
 
@@ -82,12 +96,16 @@ Provide 2-3 paragraph analysis with specific reasoning.
 
 ## 🛠️ Tech Stack
 
+- **Blockchain**: BNB Chain (primary), Arbitrum (secondary) - Smart contract deployment
+- **Smart Contracts**: Solidity 0.8.20, OpenZeppelin, Fee-only prediction receipts
 - **Frontend**: Next.js 15, React 19, React Three Fiber, Tailwind CSS
 - **3D Graphics**: Three.js, React Three Drei, Postprocessing Effects
-- **Web3**: Ethers, Arbitrum SDK, Polymarket Clob Client
-- **AI**: Venice AI API integration
-- **Backend**: Next.js API Routes, WeatherAPI, Sports APIs
-- **Hosting**: Vercel (frontend), Arbitrum (smart contracts)
+- **Web3**: Wagmi, ConnectKit, Ethers 6
+- **AI**: Venice AI (qwen3-235b for deep reasoning)
+- **Market Data**: Polymarket Gamma API
+- **Backend**: Next.js API Routes, WeatherAPI, Redis caching
+- **Database**: SQLite for prediction history and analytics
+- **Hosting**: Vercel (frontend), BNB Chain (contracts)
 
 ## 🚀 Quick Start
 

@@ -1,4 +1,5 @@
 import { ethers } from 'ethers'
+import { savePrediction } from '@/services/db'
 
 const RATE_LIMIT = 50
 const WINDOW_MS = 60 * 60 * 1000
@@ -158,6 +159,28 @@ export async function POST(request) {
     const wallet = new ethers.Wallet(serverPk, provider)
     const tx = await wallet.sendTransaction(txRequest)
     const receipt = await tx.wait()
+
+    // Save to database for analytics
+    const predictionId = ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(
+        ['address', 'uint256', 'string', 'uint256', 'uint16', 'uint256'],
+        [walletAddress, Number(marketID), side, stakeWei, oddsBps, Date.now()]
+      )
+    )
+
+    savePrediction({
+      id: predictionId,
+      userAddress: walletAddress,
+      marketId: String(marketID),
+      marketTitle: body.marketTitle || null,
+      side,
+      stakeWei: stakeWei.toString(),
+      oddsBps,
+      chainId: Number(chainId || 56),
+      txHash: tx.hash,
+      metadataUri: metadataUri || null,
+      timestamp: Math.floor(Date.now() / 1000)
+    })
 
     return Response.json({
       success: true,

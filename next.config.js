@@ -51,6 +51,30 @@ const nextConfig = {
         splitChunks: false,
         runtimeChunk: false,
       };
+    } else {
+      // For client build, handle Node.js built-ins that Redis or other server modules might need
+      config.resolve = {
+        ...config.resolve,
+        fallback: {
+          ...config.resolve?.fallback,
+          fs: false,
+          net: false,
+          tls: false,
+          dns: false,
+          assert: false,
+          crypto: false,
+          stream: false,
+          util: false,
+          path: false,
+          os: false,
+          http: false,
+          https: false,
+          zlib: false,
+          buffer: false,
+          // Handle better-sqlite3 which is a native module that can't be bundled for client
+          'better-sqlite3': false,
+        },
+      };
     }
     return config;
   },

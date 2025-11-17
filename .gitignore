@@ -39,3 +39,8 @@ next-env.d.ts
 .trae
 .qodo
 .trae/documents
+
+# Database files
+fourcast.db
+fourcast.db-shm
+fourcast.db-wal

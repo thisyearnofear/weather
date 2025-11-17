@@ -5,19 +5,24 @@
 
 import OpenAI from 'openai';
 
-let redisClientPromise = null;
-const getRedisClient = async () => {
-  const url = process.env.REDIS_URL;
-  if (!url) return null;
-  if (!redisClientPromise) {
-    const { createClient } = await import('redis');
-    const client = createClient({ url });
-    client.on('error', () => {});
-    await client.connect();
-    redisClientPromise = client;
-  }
-  return redisClientPromise;
-};
+// Determine if we're in a server environment
+const isServer = typeof window === 'undefined';
+
+// Import Redis service only on the server
+let getRedisClient = null;
+if (isServer) {
+  getRedisClient = async () => {
+    try {
+      const { getRedisClient: serverGetRedisClient } = await import('./redisService');
+      return serverGetRedisClient();
+    } catch (error) {
+      console.warn('Redis service not available in this context:', error.message);
+      return null;
+    }
+  };
+} else {
+  getRedisClient = async () => null; // No Redis on client
+}
 
 const callVeniceAI = async (params, options = {}) => {
   const { eventType, location, weatherData, currentOdds, participants } = params;
@@ -108,18 +113,27 @@ export const aiService = {
       const apiKey = process.env.VENICE_API_KEY;
       console.log('Venice API Key available:', !!apiKey, 'length:', apiKey?.length);
 
-      const redis = await getRedisClient();
-      const cacheKey = `analysis:${marketId}`;
-      if (redis) {
-        const cachedResult = await redis.get(cacheKey);
-        if (cachedResult) {
-          const parsed = JSON.parse(cachedResult);
-          return {
-            ...parsed,
-            cached: true,
-            source: 'redis'
-          };
+      // In the browser context, we can't use Redis directly
+      // Instead, we'll rely on the API route which handles Redis caching server-side
+      // Check if we're on the client - if so, the caching should happen at the API level
+      const isServer = typeof window === 'undefined';
+      if (isServer) {
+        const redis = await getRedisClient();
+        const cacheKey = `analysis:${marketId}`;
+        if (redis) {
+          const cachedResult = await redis.get(cacheKey);
+          if (cachedResult) {
+            const parsed = JSON.parse(cachedResult);
+            return {
+              ...parsed,
+              cached: true,
+              source: 'redis'
+            };
+          }
         }
+      } else {
+        // On the client, we don't access Redis directly, but we'll still return uncached results
+        console.log('Running on client, skipping Redis check');
       }
 
       // Call Venice AI API if key is available
@@ -142,7 +156,7 @@ export const aiService = {
       // Cache result with roadmap-aligned TTL (6 hours for distant events, 1 hour for near events)
       const baseTtl = eventDate && new Date(eventDate) - new Date() < 24 * 60 * 60 * 1000 ? 3600 : 21600; // 1h or 6h
       const ttl = mode === 'deep' ? Math.max(baseTtl, 21600) : baseTtl; // Deep cached at least 6h
-      if (redis) {
+      if (isServer && redis) {
         await redis.setEx(cacheKey, ttl, JSON.stringify(analysis));
       }
 
@@ -173,6 +187,7 @@ export const aiService = {
 
   /**
    * Fetch weather-sensitive markets for a given location
+   * This method relies on the API route which may have its own caching
    */
   async fetchMarkets(location, weatherData) {
     try {
@@ -209,6 +224,7 @@ export const aiService = {
 
   /**
    * Analyze a market based on weather data
+   * This method now relies on the API route which handles Redis caching server-side
    */
   async analyzeMarket(market, weatherData) {
     try {
@@ -226,7 +242,8 @@ export const aiService = {
           ...eventData,
           weatherData,
           marketID: market.marketID,
-          mode: market.mode || 'basic'
+          mode: market.mode || 'basic',
+          eventDate: market.resolutionDate || null
         })
       });
 
