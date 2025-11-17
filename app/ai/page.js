@@ -10,7 +10,6 @@ import AnalysisDisplay from './components/AnalysisDisplay';
 import OrderForm from './components/OrderForm';
 import PageNav from '@/app/components/PageNav';
 import Scene3D from '@/components/Scene3D';
-import RecentPredictions from '@/components/RecentPredictions';
 
 export default function AIPage() {
   const { address, isConnected } = useAccount();
@@ -617,8 +616,6 @@ export default function AIPage() {
               </div>
             )}
           </div>
-
-          <RecentPredictions chainId={chainId} isNight={nightStatus} />
         </div>
       </main>
       </div>
