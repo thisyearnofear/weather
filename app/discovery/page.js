@@ -219,10 +219,10 @@ const DiscoveryPage = () => {
 
   const getConfidenceColor = (confidence) => {
     switch (confidence) {
-      case 'HIGH': return 'text-green-400';
-      case 'MEDIUM': return 'text-yellow-400'; 
-      case 'LOW': return 'text-red-400';
-      default: return 'text-gray-400';
+      case 'HIGH': return isNight ? 'text-green-400' : 'text-green-700';
+      case 'MEDIUM': return isNight ? 'text-yellow-400' : 'text-yellow-700';
+      case 'LOW': return isNight ? 'text-red-400' : 'text-red-700';
+      default: return isNight ? 'text-gray-400' : 'text-gray-700';
     }
   };
 
@@ -536,9 +536,19 @@ const DiscoveryPage = () => {
                       <div className="flex items-center gap-3 mt-3">
                         <div className="flex items-center gap-2">
                           <div className={`px-2 py-1 rounded-full text-xs font-light border ${
-                            market.confidence === 'HIGH' ? 'bg-green-500/20 text-green-300 border-green-500/30' :
-                            market.confidence === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30' :
-                            'bg-red-500/20 text-red-300 border-red-500/30'
+                            market.confidence === 'HIGH' ? (
+                              isNight
+                                ? 'bg-green-500/20 text-green-300 border-green-500/30'
+                                : 'bg-green-400/20 text-green-800 border-green-400/30'
+                            ) : market.confidence === 'MEDIUM' ? (
+                              isNight
+                                ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+                                : 'bg-yellow-400/20 text-yellow-800 border-yellow-400/30'
+                            ) : (
+                              isNight
+                                ? 'bg-red-500/20 text-red-300 border-red-500/30'
+                                : 'bg-red-400/20 text-red-800 border-red-400/30'
+                            )
                           }`}>
                             {getConfidenceIcon(market.confidence)} Weather Edge: {market.confidence}
                           </div>

@@ -40,7 +40,7 @@ function getChainConfig(chainId) {
   if (id === 42161) {
     return {
       address: process.env.PREDICTION_CONTRACT_ADDRESS_ARBITRUM,
-      feeBps: parseInt(process.env.PREDICTION_FEE_BPS_ARBITRUM || '100', 10),
+      feeBps: parseInt(process.env.PREDICTION_FEE_BPS_ARBITRUM || process.env.PREDICTION_FEE_BPS || '100', 10),
       rpcUrl: process.env.ARB_RPC_URL,
       signerKey: process.env.ARB_PRIVATE_KEY
     }
@@ -48,7 +48,7 @@ function getChainConfig(chainId) {
   if (id === 56 || id === 97) {
     return {
       address: process.env.PREDICTION_CONTRACT_ADDRESS_BNB,
-      feeBps: parseInt(process.env.PREDICTION_FEE_BPS_BNB || '100', 10),
+      feeBps: parseInt(process.env.PREDICTION_FEE_BPS_BNB || process.env.PREDICTION_FEE_BPS || '100', 10),
       rpcUrl: process.env.NEXT_PUBLIC_BNB_RPC_URL,
       signerKey: process.env.BNB_PRIVATE_KEY
     }
@@ -82,6 +82,14 @@ function buildTxData(contractAddress, payload, feeBps) {
   return { to: contractAddress, data, value: fee }
 }
 
+function serializeTxRequest(tx) {
+  return {
+    to: tx.to,
+    data: tx.data,
+    value: typeof tx.value === 'bigint' ? tx.value.toString() : tx.value
+  }
+}
+
 export async function POST(request) {
   try {
     const id = identFromReq(request)
@@ -101,19 +109,29 @@ export async function POST(request) {
 
     const cfg = getChainConfig(chainId)
     if (!cfg.address) {
+      const txReq = buildTxData('0x0000000000000000000000000000000000000000', {
+        marketId: Number(marketID),
+        side,
+        stakeWei,
+        oddsBps,
+        uri: metadataUri || ''
+      }, cfg.feeBps)
       return Response.json({
         success: true,
         mode: 'client_signature_required',
-        txRequest: buildTxData('0x0000000000000000000000000000000000000000', {
-          marketId: Number(marketID),
-          side,
-          stakeWei,
-          oddsBps,
-          uri: metadataUri || ''
-        }, cfg.feeBps),
+        txRequest: serializeTxRequest(txReq),
         note: 'Set chain-specific prediction contract address to enable server-side address resolution'
       }, { status: 200 })
     }
+
+    // Ensure feeBps aligns with on-chain contract config
+    let effectiveFeeBps = cfg.feeBps
+    try {
+      const provider = getProvider(cfg.rpcUrl)
+      const contract = new ethers.Contract(cfg.address, ['function feeBps() view returns (uint16)'], provider)
+      const chainFee = await contract.feeBps()
+      effectiveFeeBps = Number(chainFee)
+    } catch (_) {}
 
     const txRequest = buildTxData(cfg.address, {
       marketId: Number(marketID),
@@ -121,11 +139,11 @@ export async function POST(request) {
       stakeWei,
       oddsBps,
       uri: metadataUri || ''
-    }, cfg.feeBps)
+    }, effectiveFeeBps)
 
     const serverPk = cfg.signerKey
     if (!serverPk) {
-      return Response.json({ success: true, txRequest, mode: 'client_signature_required' }, { status: 200 })
+      return Response.json({ success: true, txRequest: serializeTxRequest(txRequest), mode: 'client_signature_required' }, { status: 200 })
     }
 
     const provider = getProvider(cfg.rpcUrl)
@@ -156,7 +174,8 @@ export async function GET() {
     status: 'available',
     capabilities: { buildTxRequest: true, serverSubmit: !!process.env.BNB_PRIVATE_KEY },
     network: 'BNBChain',
-    contract: process.env.PREDICTION_CONTRACT_ADDRESS || null
+    contract: process.env.PREDICTION_CONTRACT_ADDRESS_BNB || null,
+    feeBps: parseInt(process.env.PREDICTION_FEE_BPS_BNB || process.env.PREDICTION_FEE_BPS || '100', 10)
   })
 }
 

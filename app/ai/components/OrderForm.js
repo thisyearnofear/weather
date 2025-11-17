@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { tradingService } from '@/services/tradingService';
+import { ethers } from 'ethers';
 
 export default function OrderForm({
   market,
@@ -56,7 +57,27 @@ export default function OrderForm({
 
     const result = await tradingService.submitOrder(order, walletStatus);
     if (result.success) {
-      onSuccess?.(result);
+      if (result.mode === 'client_signature_required' && result.txRequest && window?.ethereum) {
+        try {
+          const desiredChain = chainId || 56;
+          const currentChainHex = await window.ethereum.request({ method: 'eth_chainId' });
+          const currentChain = parseInt(currentChainHex, 16);
+          if (desiredChain && currentChain !== desiredChain) {
+            await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x' + desiredChain.toString(16) }] });
+          }
+          const tx = result.txRequest;
+          const valueHex = ethers.toBeHex(BigInt(tx.value));
+          const txHash = await window.ethereum.request({
+            method: 'eth_sendTransaction',
+            params: [{ from: walletAddress, to: tx.to, data: tx.data, value: valueHex }]
+          });
+          onSuccess?.({ success: true, orderID: txHash, order: result.order });
+        } catch (sendErr) {
+          setError(sendErr?.message || 'Wallet transaction failed');
+        }
+      } else {
+        onSuccess?.(result);
+      }
       setOrderForm({ side: 'BUY', price: market?.currentOdds?.yes || null, size: 1 });
     } else {
       setError(result.error);
