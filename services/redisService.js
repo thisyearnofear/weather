@@ -16,13 +16,18 @@ export const getRedisClient = async () => {
   if (!url) return null;
 
   if (!redisClientPromise) {
-    const { createClient } = await import('redis');
-    const client = createClient({ url });
-    client.on('error', (err) => {
-      console.error('Redis Client Error:', err);
-    });
-    await client.connect();
-    redisClientPromise = client;
+    try {
+      const { createClient } = await import('redis');
+      const client = createClient({ url });
+      client.on('error', (err) => {
+        console.error('Redis Client Error:', err);
+      });
+      await client.connect();
+      redisClientPromise = client;
+    } catch (error) {
+      console.error('Failed to connect to Redis:', error.message);
+      return null; // Return null on connection failure
+    }
   }
   return redisClientPromise;
 };

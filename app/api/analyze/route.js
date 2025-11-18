@@ -1,4 +1,5 @@
 import { analyzeWeatherImpactServer, getAIStatus } from '@/services/aiService.server';
+import { APIInputValidator, WeatherDataValidator, FuturesBetValidator } from '@/services/validators/index.js';
 
 // Rate limiting for AI analysis
 const analysisRateLimit = new Map();
@@ -37,15 +38,49 @@ function getClientIdentifier(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { eventType, location, weatherData, currentOdds, participants, marketID, mode = 'basic' } = body;
+    const { eventType, location, weatherData, currentOdds, participants, marketID, title, isFuturesBet, mode = 'basic' } = body;
 
-    // Validate required fields
-    if (!eventType || !location || !weatherData || !currentOdds) {
+    // ENHANCED: Comprehensive input validation using APIInputValidator
+    const inputValidation = APIInputValidator.validateAPIInput('analyze', {
+      marketId: marketID,
+      location,
+      weatherData,
+      eventType,
+      mode
+    });
+
+    if (!inputValidation.valid) {
       return Response.json({
         success: false,
-        error: 'Missing required fields: eventType, location, weatherData, currentOdds'
+        error: 'Input validation failed',
+        errors: inputValidation.errors,
+        warnings: inputValidation.warnings
       }, { status: 400 });
     }
+
+    // Weather data quality validation
+    const weatherValidation = WeatherDataValidator.validateWeatherData('current', weatherData);
+    if (!weatherValidation.valid) {
+      return Response.json({
+        success: false,
+        error: 'Weather data quality check failed',
+        errors: weatherValidation.errors,
+        warnings: weatherValidation.warnings
+      }, { status: 400 });
+    }
+
+    // Market type validation for weather compatibility
+    const marketData = { title, description: title, tags: [] };
+    const futuresValidation = FuturesBetValidator.validateMarketType('weather-compatibility', marketData, {
+      requestedAnalysis: 'weather'
+    });
+
+    // Include validation warnings in response (don't fail for warnings)
+    const allWarnings = [
+      ...inputValidation.warnings,
+      ...weatherValidation.warnings,
+      ...futuresValidation.warnings
+    ];
 
     // Rate limiting
     const clientId = getClientIdentifier(request);
@@ -64,10 +99,21 @@ export async function POST(request) {
       weatherData,
       currentOdds,
       participants,
+      title,
+      isFuturesBet,
       marketId: marketID, // ← Roadmap-aligned cache key: analysis:{marketID}
       eventDate: body.eventDate, // ← Dynamic TTL based on event timing
       mode
     });
+
+    // Format weather conditions for display
+    const weatherConditions = {
+      temperature: `${weatherData?.current?.temp_f || weatherData?.forecast?.forecastday?.[0]?.day?.avgtemp_f || 'N/A'}°F`,
+      condition: weatherData?.current?.condition?.text || weatherData?.forecast?.forecastday?.[0]?.day?.condition?.text || 'Unknown',
+      precipitation: `${weatherData?.current?.precip_chance || weatherData?.forecast?.forecastday?.[0]?.day?.daily_chance_of_rain || '0'}%`,
+      wind: `${weatherData?.current?.wind_mph || weatherData?.forecast?.forecastday?.[0]?.day?.maxwind_mph || '0'} mph`,
+      location: location?.name || location || 'Unknown'
+    };
 
     return Response.json({
       success: true,
@@ -80,11 +126,18 @@ export async function POST(request) {
       reasoning: analysis.analysis || 'Analysis not available',
       key_factors: analysis.key_factors || [],
       recommended_action: analysis.recommended_action || 'Monitor manually',
-      cached: analysis.cached || false, // ← Shows if result came from Redis
-      source: analysis.source || 'unknown', // ← redis/memory/venice_ai
+      weather_conditions: weatherConditions,
+      cached: analysis.cached || false,
+      source: analysis.source || 'unknown',
       citations: analysis.citations || [],
       limitations: analysis.limitations || null,
       web_search: mode === 'deep',
+      // ENHANCED: Include validation results
+      validation: {
+        weatherDataQuality: weatherValidation.dataQuality,
+        marketWeatherCompatible: futuresValidation.weatherCompatible,
+        warnings: allWarnings
+      },
       timestamp: new Date().toISOString()
     });
 

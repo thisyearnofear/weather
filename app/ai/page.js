@@ -5,6 +5,20 @@ import { useAccount, useChainId } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
 import { weatherService } from '@/services/weatherService';
 import { aiService } from '@/services/aiService';
+// Enhanced validation-aware components
+import ValidationAwareMarketSelector from './components/ValidationAwareMarketSelector';
+import EnhancedAnalysisDisplay from './components/EnhancedAnalysisDisplay';
+import EnhancedOrderForm from './components/EnhancedOrderForm';
+import ValidationStatusBar from './components/ValidationStatusBar';
+
+// Performance optimized validation hooks
+import { 
+  useLocationValidation, 
+  useWeatherValidation,
+  usePerformantValidation 
+} from './components/usePerformantValidation';
+
+// Keep legacy components as fallback
 import MarketSelector from './components/MarketSelector';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import OrderForm from './components/OrderForm';
@@ -44,6 +58,65 @@ export default function AIPage() {
     const hour = new Date().getHours();
     return hour >= 19 || hour <= 6;
   });
+
+  // Enhanced validation integration
+  const [useEnhancedComponents, setUseEnhancedComponents] = useState(true);
+
+  // Performance-optimized validations
+  const locationValidation = useLocationValidation(
+    selectedMarket?.eventType || selectedMarket?.title || 'General',
+    currentLocation,
+    { additionalContext: { title: selectedMarket?.title } }
+  );
+
+  const weatherValidation = useWeatherValidation(weatherData, {
+    dataType: 'current',
+    analysisType: 'outdoor-sports'
+  });
+
+  // Market compatibility validation
+  const marketValidators = React.useMemo(() => ({
+    compatibility: async (data, context) => {
+      if (!data.market || !data.location) {
+        return { valid: true, errors: [], warnings: [] };
+      }
+
+      const response = await fetch('/api/validate/market-compatibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          market: data.market,
+          location: data.location,
+          weatherData: data.weatherData,
+          requestedAnalysis: 'weather'
+        }),
+        signal: context?.signal
+      });
+
+      if (!response.ok) {
+        throw new Error('Market compatibility validation failed');
+      }
+
+      return await response.json();
+    }
+  }), []);
+
+  const marketValidation = usePerformantValidation(
+    { market: selectedMarket, location: currentLocation, weatherData },
+    marketValidators,
+    { dependencies: [selectedMarket?.id, currentLocation] }
+  );
+
+  // Trading readiness validation
+  const tradingValidation = {
+    aggregateValidation: {
+      valid: isConnected && selectedMarket,
+      errors: !isConnected ? ['Wallet not connected'] : 
+              !selectedMarket ? ['No market selected'] : [],
+      warnings: [],
+      hasData: true
+    }
+  };
   const [timeOfDay, setTimeOfDay] = useState(() => {
     const hour = new Date().getHours();
     if (hour >= 19 || hour <= 6) return 'night';
@@ -361,6 +434,17 @@ export default function AIPage() {
           </div>
         </header>
 
+        {/* Global Validation Status Bar */}
+        <ValidationStatusBar
+          locationValidation={locationValidation}
+          weatherValidation={weatherValidation}
+          marketValidation={marketValidation}
+          tradingValidation={tradingValidation}
+          useEnhancedComponents={useEnhancedComponents}
+          onToggleEnhanced={() => setUseEnhancedComponents(!useEnhancedComponents)}
+          isNight={nightStatus}
+        />
+
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-12 flex-1">
         {/* Filter Controls - Simplified */}
@@ -486,15 +570,28 @@ export default function AIPage() {
                  <p className={`${textColor} opacity-70 mt-3 text-sm`}>Finding markets...</p>
                </div>
              ) : markets && markets.length > 0 ? (
-               <MarketSelector
-                 markets={markets}
-                 selectedMarket={selectedMarket}
-                 onSelectMarket={handleSelectMarket}
-                 onAnalyze={handleAnalyzeMarket}
-                 onQuickTrade={handleQuickTrade}
-                 isNight={nightStatus}
-                 isLoading={isLoadingMarkets}
-               />
+               useEnhancedComponents ? (
+                 <ValidationAwareMarketSelector
+                   markets={markets}
+                   selectedMarket={selectedMarket}
+                   onSelectMarket={handleSelectMarket}
+                   onAnalyze={handleAnalyzeMarket}
+                   onQuickTrade={handleQuickTrade}
+                   validation={marketValidation}
+                   isNight={nightStatus}
+                   isLoading={isLoadingMarkets}
+                 />
+               ) : (
+                 <MarketSelector
+                   markets={markets}
+                   selectedMarket={selectedMarket}
+                   onSelectMarket={handleSelectMarket}
+                   onAnalyze={handleAnalyzeMarket}
+                   onQuickTrade={handleQuickTrade}
+                   isNight={nightStatus}
+                   isLoading={isLoadingMarkets}
+                 />
+               )
              ) : (
                <div className="text-center py-16">
                  <div className="text-5xl mb-4">🌤️</div>
@@ -525,12 +622,23 @@ export default function AIPage() {
               </div>
             ) : analysis ? (
               <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-96 overflow-y-auto`}>
-                <AnalysisDisplay
-                  analysis={analysis}
-                  selectedMarket={selectedMarket}
-                  isNight={nightStatus}
-                  onTrade={() => setShowOrderForm(!showOrderForm)}
-                />
+                {useEnhancedComponents ? (
+                  <EnhancedAnalysisDisplay
+                    analysis={analysis}
+                    selectedMarket={selectedMarket}
+                    weatherData={weatherData}
+                    validation={weatherValidation}
+                    isNight={nightStatus}
+                    onTrade={() => setShowOrderForm(!showOrderForm)}
+                  />
+                ) : (
+                  <AnalysisDisplay
+                    analysis={analysis}
+                    selectedMarket={selectedMarket}
+                    isNight={nightStatus}
+                    onTrade={() => setShowOrderForm(!showOrderForm)}
+                  />
+                )}
               </div>
             ) : selectedMarket ? (
               <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-8 text-center`}>
@@ -582,14 +690,27 @@ export default function AIPage() {
               <h3 className={`text-lg font-light ${textColor} mb-4`}>
                 Place Order - {selectedMarket.title}
               </h3>
-              <OrderForm
-                market={selectedMarket}
-                walletAddress={address}
-                isConnected={isConnected}
-                onSuccess={handleOrderSuccess}
-                isNight={nightStatus}
-                chainId={chainId}
-              />
+              {useEnhancedComponents ? (
+                <EnhancedOrderForm
+                  market={selectedMarket}
+                  walletAddress={address}
+                  isConnected={isConnected}
+                  onSuccess={handleOrderSuccess}
+                  isNight={nightStatus}
+                  chainId={chainId}
+                  weatherData={weatherData}
+                  validation={tradingValidation}
+                />
+              ) : (
+                <OrderForm
+                  market={selectedMarket}
+                  walletAddress={address}
+                  isConnected={isConnected}
+                  onSuccess={handleOrderSuccess}
+                  isNight={nightStatus}
+                  chainId={chainId}
+                />
+              )}
             </div>
           )}
 

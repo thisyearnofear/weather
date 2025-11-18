@@ -1,5 +1,6 @@
 // Polymarket Service for fetching live market data and placing orders
 import axios from 'axios';
+import { MarketDataValidator, WeatherDataValidator } from './validators/index.js';
 
 class PolymarketService {
   constructor() {
@@ -242,6 +243,7 @@ class PolymarketService {
   /**
    * Get detailed market information including current odds, tick size, negRisk
    * CRITICAL for order placement - needed for validation
+   * ENHANCED: Now includes comprehensive market data validation
    */
   async getMarketDetails(marketID) {
     try {
@@ -254,6 +256,17 @@ class PolymarketService {
       const response = await axios.get(`${this.baseURL}/markets/${marketID}`, { timeout: 10000 });
       const marketData = response.data;
 
+      // ENHANCED: Validate market data quality using MarketDataValidator
+      const marketValidation = MarketDataValidator.validateMarketData('market', marketData);
+      const pricingValidation = MarketDataValidator.validateMarketData('pricing', {
+        currentOdds: {
+          yes: marketData.outcomePrices?.[0],
+          no: marketData.outcomePrices?.[1]
+        },
+        outcomePrices: marketData.outcomePrices,
+        lastPrice: marketData.lastPrice
+      });
+
       // Enrich with trading metadata needed for orders
       const enrichedData = {
         ...marketData,
@@ -261,6 +274,13 @@ class PolymarketService {
           tickSize: marketData.tickSize || '0.001',
           negRisk: marketData.negRisk || false,
           chainId: 137 // Polygon
+        },
+        // ENHANCED: Include validation results
+        validation: {
+          market: marketValidation,
+          pricing: pricingValidation,
+          dataQuality: marketValidation.dataQuality || 'UNKNOWN',
+          warnings: [...(marketValidation.warnings || []), ...(pricingValidation.warnings || [])]
         }
       };
 
@@ -731,39 +751,62 @@ class PolymarketService {
   /**
    * Get the best opportunities - markets with high volume but potentially mispriced
    * This requires comparing AI-assessed probability vs actual odds
+   * ENHANCED: Now includes comprehensive weather data validation
    */
   async getWeatherAdjustedOpportunities(weatherData, location) {
     try {
+      // ENHANCED: Validate weather data quality first
+      const weatherValidation = WeatherDataValidator.validateWeatherData('current', weatherData);
+      if (!weatherValidation.valid) {
+        return {
+          opportunities: [],
+          error: 'Weather data validation failed',
+          validation: weatherValidation,
+          timestamp: new Date().toISOString()
+        };
+      }
+
       const markets = await this.searchMarketsByLocation(location);
 
       if (!markets.markets || markets.markets.length === 0) {
         return {
           opportunities: [],
-          message: 'No weather-sensitive markets found for this location'
+          message: 'No weather-sensitive markets found for this location',
+          weatherDataQuality: weatherValidation.dataQuality
         };
       }
 
-      // Map markets to opportunities with basic pricing
-      const opportunities = markets.markets.map(market => ({
-        marketID: market.tokenID || market.id,
-        title: market.title || market.question,
-        description: market.description,
-        tags: market.tags || [],
-        currentOdds: {
-          yes: market.yesPrice || market.bid,
-          no: market.noPrice || market.ask,
-        },
-        volume24h: market.volume24h,
-        liquidityBin: market.liquidity,
-        resolution: market.resolutionDate || market.expiresAt,
-        weatherRelevance: this.assessWeatherRelevance(market, weatherData)
-      }));
+      // ENHANCED: Map markets to opportunities with validation
+      const opportunities = markets.markets.map(market => {
+        // Validate market data quality
+        const marketValidation = MarketDataValidator.validateMarketData('market', market);
+        
+        return {
+          marketID: market.tokenID || market.id,
+          title: market.title || market.question,
+          description: market.description,
+          tags: market.tags || [],
+          currentOdds: {
+            yes: market.yesPrice || market.bid,
+            no: market.noPrice || market.ask,
+          },
+          volume24h: market.volume24h,
+          liquidityBin: market.liquidity,
+          resolution: market.resolutionDate || market.expiresAt,
+          weatherRelevance: this.assessMarketWeatherEdge(market, weatherData),
+          // ENHANCED: Include validation results
+          validation: {
+            marketDataQuality: marketValidation.dataQuality || 'UNKNOWN',
+            marketWarnings: marketValidation.warnings || []
+          }
+        };
+      });
 
-      // Sort by volume and weather relevance
+      // Sort by weather relevance score and volume
       opportunities.sort((a, b) => {
-        const volumeDiff = (b.volume24h || 0) - (a.volume24h || 0);
-        if (volumeDiff !== 0) return volumeDiff;
-        return (b.weatherRelevance.score || 0) - (a.weatherRelevance.score || 0);
+        const scoreDiff = (b.weatherRelevance?.totalScore || 0) - (a.weatherRelevance?.totalScore || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.volume24h || 0) - (a.volume24h || 0);
       });
 
       return {
@@ -775,6 +818,12 @@ class PolymarketService {
           wind: weatherData.current?.wind_mph,
           humidity: weatherData.current?.humidity
         },
+        // ENHANCED: Include validation results
+        validation: {
+          weatherDataQuality: weatherValidation.dataQuality,
+          weatherWarnings: weatherValidation.warnings,
+          capabilities: WeatherDataValidator.checkWeatherDataCapabilities(weatherData, 'outdoor-sports')
+        },
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -783,6 +832,92 @@ class PolymarketService {
         opportunities: [],
         error: error.message,
         timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * NEW: Comprehensive market validation for trading operations
+   * Used by enhanced tradingService and API routes
+   */
+  async validateMarketForTrading(marketID) {
+    try {
+      const marketData = await this.getMarketDetails(marketID);
+      if (!marketData) {
+        return {
+          valid: false,
+          error: 'Market not found',
+          marketData: null
+        };
+      }
+
+      // Market already includes validation from getMarketDetails
+      const marketValidation = marketData.validation?.market;
+      const pricingValidation = marketData.validation?.pricing;
+
+      // Additional trading-specific validations
+      const tradingIssues = [];
+      const tradingWarnings = [];
+
+      // Check if market is closed or resolved
+      if (marketData.closed) {
+        tradingIssues.push('Market is closed for trading');
+      }
+
+      if (marketData.resolved) {
+        tradingIssues.push('Market has been resolved');
+      }
+
+      // Check resolution date
+      if (marketData.endDate) {
+        const endDate = new Date(marketData.endDate);
+        const now = new Date();
+        if (endDate <= now) {
+          tradingIssues.push('Market has expired');
+        } else if (endDate <= new Date(now.getTime() + 24 * 60 * 60 * 1000)) {
+          tradingWarnings.push('Market expires within 24 hours');
+        }
+      }
+
+      // Check liquidity
+      const liquidity = parseFloat(marketData.liquidity || '0');
+      if (liquidity < 1000) {
+        tradingWarnings.push('Low market liquidity - expect price impact');
+      }
+
+      const allErrors = [
+        ...(marketValidation?.errors || []),
+        ...(pricingValidation?.errors || []),
+        ...tradingIssues
+      ];
+
+      const allWarnings = [
+        ...(marketValidation?.warnings || []),
+        ...(pricingValidation?.warnings || []),
+        ...tradingWarnings
+      ];
+
+      return {
+        valid: allErrors.length === 0,
+        errors: allErrors,
+        warnings: allWarnings,
+        marketData,
+        validation: {
+          market: marketValidation,
+          pricing: pricingValidation,
+          trading: {
+            valid: tradingIssues.length === 0,
+            errors: tradingIssues,
+            warnings: tradingWarnings
+          }
+        }
+      };
+    } catch (error) {
+      console.error(`Error validating market ${marketID} for trading:`, error.message);
+      return {
+        valid: false,
+        error: `Market validation failed: ${error.message}`,
+        marketData: null
       };
     }
   }

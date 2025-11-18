@@ -153,11 +153,33 @@ const DiscoveryPage = () => {
     setAnalysis(null);
 
     try {
+      // Use scalable market type detection (works for all sports globally)
+      const { MarketTypeDetector } = await import('@/services/marketTypeDetector');
+      const marketType = MarketTypeDetector.detectMarketType(market);
+      const isFuturesBet = marketType.isFutures;
+      
+      // Log detection for debugging
+      if (marketType.confidence === 'HIGH') {
+        console.log(`📊 Market type detected:`, marketType);
+      }
+      
+      // Extract team/participants from title if not provided
+      const title = (market.title || market.question || '').toLowerCase();
+      let participants = market.teams || [];
+      if (!participants.length && title) {
+        const teamMatch = title.match(/(?:will (?:the )?)?([a-z ]+?)(?:\s+win|\s+make)/i);
+        if (teamMatch) {
+          participants = [teamMatch[1].trim()];
+        }
+      }
+
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          eventType: market.eventType || 'Weather',
+          eventType: market.eventType || 'Sports',
+          title: market.title || market.question,
+          isFuturesBet,
           location: market.location || (weatherData?.location?.name || ''),
           weatherData,
           currentOdds: market.currentOdds || (
@@ -165,7 +187,7 @@ const DiscoveryPage = () => {
               ? { yes: Number(market.ask), no: Number(market.bid) }
               : null
           ),
-          participants: market.teams || [],
+          participants,
           marketID: market.marketID || market.id || market.tokenID,
           eventDate: market.resolutionDate || market.expiresAt || null,
           mode
@@ -619,6 +641,39 @@ const DiscoveryPage = () => {
                         {analysis.web_search && (
                           <div className={`text-xs ${textColor} opacity-70`}>Enhanced analysis with web research enabled</div>
                         )}
+
+                        {/* Weather Conditions - Only show for non-futures bets */}
+                        {analysis.weather_conditions && analysis.assessment?.weather_impact !== 'N/A' && (
+                          <div className={`backdrop-blur-sm border rounded-xl p-4 ${
+                            isNight ? 'bg-blue-500/5 border-blue-500/20' : 'bg-blue-400/5 border-blue-400/20'
+                          }`}>
+                            <h4 className={`text-sm font-light ${textColor} opacity-90 mb-3 flex items-center gap-2`}>
+                              🌤️ Game Day Weather Forecast
+                            </h4>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <div className={`text-xs ${textColor} opacity-60 mb-1`}>Temperature</div>
+                                <div className={`text-sm font-medium ${textColor}`}>{analysis.weather_conditions.temperature}</div>
+                              </div>
+                              <div>
+                                <div className={`text-xs ${textColor} opacity-60 mb-1`}>Conditions</div>
+                                <div className={`text-sm font-medium ${textColor}`}>{analysis.weather_conditions.condition}</div>
+                              </div>
+                              <div>
+                                <div className={`text-xs ${textColor} opacity-60 mb-1`}>Precipitation</div>
+                                <div className={`text-sm font-medium ${textColor}`}>{analysis.weather_conditions.precipitation} chance</div>
+                              </div>
+                              <div>
+                                <div className={`text-xs ${textColor} opacity-60 mb-1`}>Wind</div>
+                                <div className={`text-sm font-medium ${textColor}`}>{analysis.weather_conditions.wind}</div>
+                              </div>
+                            </div>
+                            <div className={`text-xs ${textColor} opacity-50 mt-2`}>
+                              📍 {analysis.weather_conditions.location}
+                            </div>
+                          </div>
+                        )}
+
                         {/* Assessment Summary */}
                         <div className="grid grid-cols-3 gap-4">
                           <div className="text-center">
@@ -652,11 +707,13 @@ const DiscoveryPage = () => {
                         </div>
 
                         {/* Analysis Reasoning */}
-                        <div className={`backdrop-blur-sm border rounded-xl p-4 ${
+                        <div className={`backdrop-blur-sm border rounded-xl p-5 ${
                           isNight ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'
                         }`}>
-                          <h4 className={`text-sm font-light ${textColor} opacity-90 mb-3`}>AI Analysis</h4>
-                          <p className={`text-sm ${textColor} opacity-80 leading-relaxed`}>
+                          <h4 className={`text-sm font-light ${textColor} opacity-90 mb-3 flex items-center gap-2`}>
+                            🤖 AI Weather Analysis
+                          </h4>
+                          <p className={`text-base ${textColor} opacity-90 leading-relaxed font-light`}>
                             {analysis.reasoning || 'Analysis details not available'}
                           </p>
                         </div>
@@ -678,11 +735,23 @@ const DiscoveryPage = () => {
 
                         {/* Recommendation */}
                         {analysis.recommended_action && (
-                          <div className={`backdrop-blur-sm border rounded-xl p-4 ${
-                            isNight ? 'bg-blue-500/10 border-blue-500/20' : 'bg-blue-400/10 border-blue-400/20'
+                          <div className={`backdrop-blur-sm border rounded-xl p-5 ${
+                            analysis.recommended_action.toLowerCase().includes('bet yes') 
+                              ? (isNight ? 'bg-green-500/15 border-green-500/30' : 'bg-green-400/15 border-green-400/30')
+                              : analysis.recommended_action.toLowerCase().includes('bet no')
+                              ? (isNight ? 'bg-red-500/15 border-red-500/30' : 'bg-red-400/15 border-red-400/30')
+                              : analysis.recommended_action.toLowerCase().includes('avoid')
+                              ? (isNight ? 'bg-orange-500/15 border-orange-500/30' : 'bg-orange-400/15 border-orange-400/30')
+                              : (isNight ? 'bg-blue-500/10 border-blue-500/20' : 'bg-blue-400/10 border-blue-400/20')
                           }`}>
-                            <h4 className={`text-sm font-light ${textColor} opacity-90 mb-2`}>Recommendation</h4>
-                            <p className={`text-sm ${textColor} opacity-80`}>
+                            <h4 className={`text-sm font-light ${textColor} opacity-90 mb-3 flex items-center gap-2`}>
+                              {analysis.recommended_action.toLowerCase().includes('bet yes') && '🟢'}
+                              {analysis.recommended_action.toLowerCase().includes('bet no') && '🔴'}
+                              {analysis.recommended_action.toLowerCase().includes('avoid') && '⚠️'}
+                              {!analysis.recommended_action.toLowerCase().includes('bet') && !analysis.recommended_action.toLowerCase().includes('avoid') && '💡'}
+                              Trading Recommendation
+                            </h4>
+                            <p className={`text-base font-medium ${textColor} leading-relaxed`}>
                               {analysis.recommended_action}
                             </p>
                           </div>

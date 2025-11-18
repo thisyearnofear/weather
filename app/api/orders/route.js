@@ -1,6 +1,7 @@
 import { polymarketService } from '@/services/polymarketService';
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
 import { Wallet } from '@ethersproject/wallet';
+import { APIInputValidator, TradingValidator, MarketDataValidator } from '@/services/validators/index.js';
 
 // Order submission rate limiting
 const orderRateLimit = new Map();
@@ -106,15 +107,23 @@ export async function POST(request) {
       walletData
     } = body;
 
-    // Validate required fields
-    if (!marketID || price === undefined || !side || !size) {
-      return Response.json(
-        {
-          success: false,
-          error: 'Missing required fields: marketID, price, side, size'
-        },
-        { status: 400 }
-      );
+    // ENHANCED: Comprehensive input validation using APIInputValidator
+    const inputValidation = APIInputValidator.validateAPIInput('orders', {
+      marketID,
+      price,
+      side,
+      size,
+      walletAddress: walletData?.address,
+      chainId: 137 // Polygon
+    });
+
+    if (!inputValidation.valid) {
+      return Response.json({
+        success: false,
+        error: 'Input validation failed',
+        errors: inputValidation.errors,
+        warnings: inputValidation.warnings
+      }, { status: 400 });
     }
 
     // Rate limiting
@@ -143,40 +152,72 @@ export async function POST(request) {
       );
     }
 
-    // Validate order against market data
-    const validation = await polymarketService.validateOrder({
-      marketID,
+    // ENHANCED: Get market data for comprehensive validation
+    const marketData = await polymarketService.getMarketDetails(marketID);
+    if (!marketData) {
+      return Response.json({
+        success: false,
+        error: 'Market not found or temporarily unavailable'
+      }, { status: 404 });
+    }
+
+    // Validate market data quality
+    const marketValidation = MarketDataValidator.validateMarketData('market', marketData);
+    if (!marketValidation.valid) {
+      return Response.json({
+        success: false,
+        error: 'Market data validation failed',
+        errors: marketValidation.errors,
+        warnings: marketValidation.warnings
+      }, { status: 400 });
+    }
+
+    // ENHANCED: Comprehensive order validation using TradingValidator
+    const orderData = {
       price: parseFloat(price),
+      size: parseFloat(size),
       side,
-      size: parseFloat(size)
+      marketID,
+      walletAddress: walletData?.address,
+      chainId: 137
+    };
+
+    const walletStatus = {
+      balance: { formatted: walletData?.usdcBalance || '0' },
+      approved: true // Assume approved if wallet data provided
+    };
+
+    const tradingValidation = TradingValidator.validateTradingOperation('order', orderData, {
+      walletStatus,
+      marketData,
+      userPreferences: { maxPositionSize: 10000 } // Default preferences
     });
 
-    if (!validation.valid) {
-      return Response.json(
-        {
-          success: false,
-          error: validation.error
-        },
-        { status: 400 }
-      );
+    if (!tradingValidation.valid) {
+      return Response.json({
+        success: false,
+        error: 'Order validation failed',
+        errors: tradingValidation.errors,
+        warnings: tradingValidation.warnings,
+        details: {
+          riskLevel: tradingValidation.riskLevel,
+          orderCost: tradingValidation.orderCost
+        }
+      }, { status: 400 });
     }
 
-    // Check sufficient balance
-    const orderCost = polymarketService.calculateOrderCost(
-      parseFloat(price),
-      parseFloat(size),
-      parseInt(feeRateBps)
-    );
+    // Estimate price impact for user awareness
+    const priceImpactValidation = TradingValidator.validateTradingOperation('price-impact', orderData, {
+      marketData
+    });
 
-    if (parseFloat(walletData.usdcBalance) < parseFloat(orderCost.total)) {
-      return Response.json(
-        {
-          success: false,
-          error: `Insufficient balance. Need ${orderCost.total} USDC, have ${walletData.usdcBalance} USDC`
-        },
-        { status: 400 }
-      );
-    }
+    // Collect all warnings for user awareness
+    const allWarnings = [
+      ...inputValidation.warnings,
+      ...marketValidation.warnings,
+      ...tradingValidation.warnings,
+      ...priceImpactValidation.warnings
+    ];
 
     // Initialize CLOB client (server-side only)
     const clobClient = initializeClobClient();
@@ -215,23 +256,33 @@ export async function POST(request) {
         OrderType.GTC // Good Till Cancelled
       );
 
-      return Response.json(
-        {
-          success: true,
-          orderID: response.orderID || response.id,
-          order: {
-            marketID,
-            side,
-            size,
-            price,
-            cost: orderCost.total,
-            status: 'submitted'
-          },
-          marketData: validation.marketData,
-          timestamp: new Date().toISOString()
+      return Response.json({
+        success: true,
+        orderID: response.orderID || response.id,
+        order: {
+          marketID,
+          side,
+          size,
+          price,
+          cost: tradingValidation.orderCost.total,
+          status: 'submitted'
         },
-        { status: 201 }
-      );
+        // ENHANCED: Include validation results
+        validation: {
+          riskLevel: tradingValidation.riskLevel,
+          orderCost: tradingValidation.orderCost,
+          estimatedPriceImpact: priceImpactValidation.estimatedPriceImpact,
+          marketDataQuality: marketValidation.dataQuality,
+          warnings: allWarnings
+        },
+        marketData: {
+          title: marketData.title,
+          liquidity: marketData.liquidity,
+          volume24h: marketData.volume24h,
+          tickSize: marketData.tradingMetadata?.tickSize
+        },
+        timestamp: new Date().toISOString()
+      }, { status: 201 });
     } catch (orderError) {
       console.error('Order submission failed:', orderError);
 

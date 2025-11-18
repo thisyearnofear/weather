@@ -1,7 +1,11 @@
 /**
  * Trading Service - Handles wallet operations and order submission
  * Single source of truth for trading-related API calls
+ * 
+ * ENHANCED: Now uses comprehensive TradingValidator for all validations
  */
+
+import { TradingValidator } from './validators/tradingValidator.js';
 
 export const tradingService = {
   /**
@@ -30,48 +34,59 @@ export const tradingService = {
 
   /**
    * Calculate order cost (BNB stake)
+   * ENHANCED: Now uses TradingValidator with comprehensive cost calculation
    */
-  calculateOrderCost(price, size) {
-    if (!price || !size) return null;
-    const baseCost = price * size;
-    return {
-      baseCost: baseCost.toFixed(6),
-      total: baseCost.toFixed(6)
-    };
+  calculateOrderCost(price, size, feeRateBps = 0) {
+    return TradingValidator.calculateOrderCost(price, size, feeRateBps);
   },
 
   /**
    * Validate order before submission
+   * ENHANCED: Now uses comprehensive TradingValidator with detailed validation
    */
-  validateOrder(order, walletStatus) {
-    const { price, size, walletAddress } = order;
-    const orderCost = this.calculateOrderCost(price, size);
+  validateOrder(order, walletStatus, marketData = null) {
+    // Use TradingValidator for comprehensive validation
+    const validation = TradingValidator.validateTradingOperation('order', order, {
+      walletStatus,
+      marketData,
+      userPreferences: {} // Can be extended with user preferences
+    });
 
-    if (!walletAddress) {
-      return { valid: false, error: 'Wallet not connected' };
-    }
-
-    if (!price || !size) {
-      return { valid: false, error: 'Missing price or size' };
-    }
-
-    if (walletStatus && parseFloat(walletStatus.balance.formatted) < parseFloat(orderCost.total)) {
+    if (!validation.valid) {
       return {
         valid: false,
-        error: `Insufficient balance. Need ${orderCost.total} BNB, have ${walletStatus.balance.formatted} BNB`
+        error: validation.errors.join('; '),
+        warnings: validation.warnings,
+        details: {
+          errors: validation.errors,
+          warnings: validation.warnings,
+          riskLevel: validation.riskLevel
+        }
       };
     }
 
-    return { valid: true };
+    return {
+      valid: true,
+      orderCost: validation.orderCost,
+      riskLevel: validation.riskLevel,
+      warnings: validation.warnings
+    };
   },
 
   /**
    * Submit prediction to BNBChain (returns tx request or tx hash)
+   * ENHANCED: Now includes market data validation and comprehensive error handling
    */
-  async submitOrder(order, walletStatus) {
-    const validation = this.validateOrder(order, walletStatus);
+  async submitOrder(order, walletStatus, marketData = null) {
+    // Enhanced validation with market data
+    const validation = this.validateOrder(order, walletStatus, marketData);
     if (!validation.valid) {
-      return { success: false, error: validation.error };
+      return { 
+        success: false, 
+        error: validation.error,
+        warnings: validation.warnings,
+        details: validation.details
+      };
     }
 
     try {
@@ -95,7 +110,11 @@ export const tradingService = {
           orderID: data.txHash || data.orderID || 'client-sign',
           order: data.order,
           txRequest: data.txRequest,
-          mode: data.mode
+          mode: data.mode,
+          // Include validation results for client awareness
+          orderCost: validation.orderCost,
+          riskLevel: validation.riskLevel,
+          warnings: validation.warnings
         };
       }
       return { success: false, error: data.error || 'Order submission failed' };
@@ -103,5 +122,45 @@ export const tradingService = {
       console.error('Order submission error:', err);
       return { success: false, error: 'Failed to submit order' };
     }
+  },
+
+  /**
+   * NEW: Validate wallet status using TradingValidator
+   */
+  async validateWallet(walletAddress, chainId) {
+    const validation = TradingValidator.validateTradingOperation('wallet', {
+      address: walletAddress,
+      chainId
+    });
+
+    return validation;
+  },
+
+  /**
+   * NEW: Check market access permissions
+   */
+  async validateMarketAccess(userLocation, marketType, userAge = null) {
+    const validation = TradingValidator.validateTradingOperation('market-access', {
+      userLocation,
+      marketType,
+      userAge
+    });
+
+    return validation;
+  },
+
+  /**
+   * NEW: Estimate price impact for large orders
+   */
+  async estimatePriceImpact(orderData, marketData) {
+    const validation = TradingValidator.validateTradingOperation('price-impact', orderData, {
+      marketData
+    });
+
+    return {
+      estimatedImpact: validation.estimatedPriceImpact,
+      warnings: validation.warnings,
+      valid: validation.valid
+    };
   }
 };

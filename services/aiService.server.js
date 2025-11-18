@@ -5,9 +5,10 @@
 
 import OpenAI from 'openai';
 import { getRedisClient } from './redisService';
+import { LocationValidator } from './locationValidator.js';
 
 const callVeniceAI = async (params, options = {}) => {
-  const { eventType, location, weatherData, currentOdds, participants } = params;
+  const { eventType, location, weatherData, currentOdds, participants, title, isFuturesBet } = params;
   const { webSearch = false, showThinking = false } = options;
 
   // Configure Venice AI client
@@ -16,31 +17,67 @@ const callVeniceAI = async (params, options = {}) => {
     baseURL: 'https://api.venice.ai/api/v1'
   });
 
+    // Format odds properly
+    const oddsText = typeof currentOdds === 'object' 
+      ? `YES: ${currentOdds.yes || 'N/A'}, NO: ${currentOdds.no || 'N/A'}`
+      : currentOdds;
+    
+    // Format participants if available
+    const participantText = participants
+      ? ` (${Array.isArray(participants) ? participants.join(' vs ') : participants})`
+      : '';
+
+    // Validate location using consolidated LocationValidator service
+    const locationValidation = LocationValidator.validateLocation(eventType, location, { title });
+    if (!locationValidation.valid) {
+      const locationText = location?.name || location || 'Unknown';
+      return LocationValidator.generateValidationErrorResponse(locationValidation, eventType, locationText);
+    }
+
     const messages = [
     {
       role: 'system',
-      content: 'You are a concise prediction market analyst. Analyze weather impacts on odds. Be direct and actionable - no unnecessary detail.'
+      content: `You are an expert sports betting analyst specializing in weather impacts on game outcomes. You provide SPECIFIC, ACTIONABLE analysis with clear reasoning. Focus on:
+
+1. How specific weather conditions affect game dynamics (passing vs running, scoring, field conditions)
+2. Which team benefits more from these conditions and why
+3. Whether the current market odds properly reflect this weather edge
+4. Clear YES/NO/AVOID recommendation with rationale
+
+Be concise but specific. No generic advice.`
     },
+    
     {
       role: 'user',
-      content: `Analyze how this prediction market might be influenced by weather conditions.
+      content: `Analyze this prediction market for weather-driven betting opportunities:
 
-MARKET: "${eventType}"
-WEATHER CONDITIONS: ${weatherData?.current?.temp_f || 'unknown'}°F temperature, ${weatherData?.current?.condition?.text || 'unknown'} conditions, ${weatherData?.current?.precip_chance || '0'}% precipitation chance, ${weatherData?.current?.wind_mph || '0'}mph winds
-CURRENT ODDS: ${currentOdds}
+MARKET: ${eventType}${participantText}
+LOCATION: ${location?.name || location || 'Unknown'}
+GAME TIME: ${weatherData?.forecast?.forecastday?.[0]?.date || 'Unknown'}
 
-Respond with this exact JSON structure containing your analysis:
+WEATHER CONDITIONS:
+- Temperature: ${weatherData?.current?.temp_f || weatherData?.forecast?.forecastday?.[0]?.day?.avgtemp_f || 'unknown'}°F
+- Conditions: ${weatherData?.current?.condition?.text || weatherData?.forecast?.forecastday?.[0]?.day?.condition?.text || 'unknown'}
+- Precipitation: ${weatherData?.current?.precip_chance || weatherData?.forecast?.forecastday?.[0]?.day?.daily_chance_of_rain || '0'}% chance
+- Wind: ${weatherData?.current?.wind_mph || weatherData?.forecast?.forecastday?.[0]?.day?.maxwind_mph || '0'} mph
+
+CURRENT MARKET ODDS: ${oddsText}
+
+Provide your analysis in this EXACT JSON format (replace the example values with your actual analysis):
+
+EXAMPLE (for a different game):
 {
-  "weather_impact": "LOW",
-  "odds_efficiency": "UNKNOWN", 
-  "confidence": "HIGH",
-  "analysis": "The weather conditions show minimal impact on this corporate market cap prediction.",
-  "key_factors": ["Weather has no direct influence on corporate performance"],
-  "recommended_action": "No trading action needed - weather irrelevant",
-  ${webSearch ? '"citations": [{"title":"...","url":"https://...","snippet":"..."}], "limitations": "..."' : ''}
-}`
+  "weather_impact": "HIGH",
+  "odds_efficiency": "UNDERPRICED",
+  "confidence": "MEDIUM",
+  "analysis": "Heavy rain (90% chance) and 15mph winds severely limit aerial attacks. Patriots' pass-heavy offense will struggle more than Steelers' ground game. Market underprices weather advantage by ~8%.",
+  "key_factors": ["Rain reduces passing completion by 12%", "Wind favors run-heavy teams", "Steelers ranked #3 in rushing"],
+  "recommended_action": "BET YES (Steelers) - Weather creates 8% edge for ground game"
+}
+
+NOW analyze THIS game and return YOUR analysis in the same JSON format:`
     }
-  ];
+    ];
 
   try {
     console.log('🤖 Calling Venice AI...');
@@ -63,6 +100,22 @@ Respond with this exact JSON structure containing your analysis:
     const parsed = JSON.parse(content);
     console.log('🤖 Venice AI parsed response:', parsed);
 
+    // Validate that we got actual analysis, not echoed input
+    const hasValidAnalysis = parsed.analysis && 
+                             parsed.analysis !== 'string' && 
+                             !parsed.analysis.includes('Your detailed') &&
+                             typeof parsed.analysis === 'string' &&
+                             parsed.analysis.length > 20;
+    
+    const hasValidFactors = Array.isArray(parsed.key_factors) && 
+                           parsed.key_factors.length > 0 &&
+                           !parsed.key_factors[0]?.includes('Factor');
+    
+    if (!hasValidAnalysis || !hasValidFactors) {
+      console.warn('⚠️ AI returned invalid/template response, using fallback');
+      throw new Error('AI returned template instead of analysis');
+    }
+
     return {
       assessment: {
         weather_impact: parsed.weather_impact || 'MEDIUM',
@@ -83,9 +136,33 @@ Respond with this exact JSON structure containing your analysis:
 };
 
 export async function analyzeWeatherImpactServer(params) {
-  const { eventType, location, weatherData, currentOdds, participants, marketId, eventDate, mode = 'basic' } = params;
+  const { eventType, location, weatherData, currentOdds, participants, marketId, eventDate, title, isFuturesBet, mode = 'basic' } = params;
 
   try {
+    // Check for futures bets FIRST - before cache lookup
+    // This ensures we don't return cached bad analyses for futures
+    if (isFuturesBet) {
+      console.log('🎯 Futures bet detected, skipping weather analysis');
+      return {
+        assessment: {
+          weather_impact: 'N/A',
+          odds_efficiency: 'UNKNOWN',
+          confidence: 'LOW'
+        },
+        analysis: `This is a futures bet for ${title || 'a championship market'}. Weather analysis isn't applicable since the event won't be decided until the season plays out. The current odds reflect team strength, injuries, and schedule difficulty rather than weather conditions.`,
+        key_factors: [
+          'Futures bets cannot be analyzed based on current weather',
+          'Championship location and weather unknown until event is scheduled',
+          'Season-long performance depends on many games in varying conditions'
+        ],
+        recommended_action: `Focus on team fundamentals - This is a futures bet where weather won't impact the outcome. Research team performance metrics, schedule difficulty, and injury reports instead.`,
+        citations: [],
+        limitations: 'Weather analysis not applicable to futures bets',
+        cached: false,
+        source: 'futures_bypass'
+      };
+    }
+
     const apiKey = process.env.VENICE_API_KEY;
     console.log('Venice API Key available:', !!apiKey, 'length:', apiKey?.length);
 
@@ -118,7 +195,15 @@ export async function analyzeWeatherImpactServer(params) {
       };
     }
 
-    const analysis = await callVeniceAI({ eventType, location, weatherData, currentOdds, participants }, {
+    const analysis = await callVeniceAI({ 
+      eventType, 
+      location, 
+      weatherData, 
+      currentOdds, 
+      participants, 
+      title, 
+      isFuturesBet 
+    }, {
       webSearch: mode === 'deep',
       showThinking: false
     });

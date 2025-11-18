@@ -18,7 +18,7 @@ Weather impacts billions in outcomes (sports performance, voter turnout, event l
 
 **Smart Architecture:** Rather than bootstrapping our own prediction markets (expensive, slow), we use BNB Chain for what it does best—low-cost, high-speed analytics tracking—while pulling market data from established platforms like Polymarket.
 
-See [BNB Chain Architecture](./docs/BNB_CHAIN_ARCHITECTURE.md) for our hybrid design rationale.
+See [Architecture Guide](./docs/ARCHITECTURE.md) for our hybrid design rationale.
 
 ## 🚀 MVP Scope (No Model Training Required)
 
@@ -205,10 +205,12 @@ const order = await client.createAndPostOrder({
 
 ## 📖 Documentation
 
-- [Getting Started & Development Guide](./docs/GUIDE.md)
-- [API Reference](./docs/API.md)
-- [Product Roadmap & Vision](./docs/ROADMAP.md)
-- [Integration & Development Details](./docs/INTEGRATION.md)
+Comprehensive documentation in 4 focused guides:
+
+- **[Setup Guide](./docs/SETUP.md)** - Installation, configuration, and development workflow
+- **[Architecture Guide](./docs/ARCHITECTURE.md)** - System design, patterns, and scalability
+- **[Validation Framework](./docs/VALIDATION.md)** - Comprehensive validation system and integration
+- **[API Reference & Roadmap](./docs/API.md)** - Complete API documentation and product roadmap
 
 ## 🤝 Contributing
 
