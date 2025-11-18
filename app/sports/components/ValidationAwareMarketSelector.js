@@ -15,15 +15,23 @@ import { DataQualityIndicator, RiskIndicator } from './ValidationDisplay';
  * - User-friendly filtering and sorting
  */
 
-export default function ValidationAwareMarketSelector({ 
-  onMarketSelect, 
-  location, 
+export default function ValidationAwareMarketSelector({
+  onMarketSelect,
+  location,
   weatherData,
-  selectedMarket 
+  selectedMarket,
+  markets: propMarkets, // Use markets from parent instead of fetching own
+  isLoading: propIsLoading = false,
+  onSelectMarket,
+  onAnalyze,
+  onQuickTrade,
+  validation,
+  isNight = false,
+  ...otherProps
 }) {
-  const [markets, setMarkets] = useState([]);
+  const [internalMarkets, setInternalMarkets] = useState([]);
   const [filteredMarkets, setFilteredMarkets] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(propIsLoading);
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
     compatibility: 'all', // all, compatible, limited
@@ -32,9 +40,34 @@ export default function ValidationAwareMarketSelector({
   });
   const [sortBy, setSortBy] = useState('volume'); // volume, compatibility, quality, risk
 
-  // Load and validate markets
+  // Design system constants matching the site's sophisticated styling
+  const getCardBg = () => isNight
+    ? 'bg-slate-900/80 backdrop-blur-xl border border-slate-700/50'
+    : 'bg-white/90 backdrop-blur-xl border border-slate-200/50';
+  
+  const getTextColor = () => isNight ? 'text-slate-100' : 'text-slate-900';
+  const getMutedText = () => isNight ? 'text-slate-400' : 'text-slate-600';
+  const getAccentColor = () => isNight ? 'text-blue-300' : 'text-blue-600';
+  const getInputBg = () => isNight
+    ? 'bg-slate-800/50 border-slate-600/50 text-slate-100 placeholder-slate-400'
+    : 'bg-white border-slate-300 text-slate-900 placeholder-slate-500';
+  const getButtonBg = () => isNight
+    ? 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50'
+    : 'bg-slate-100 hover:bg-slate-200 border-slate-300';
+
+  // Use markets from parent props if provided, otherwise use internal state
+  const markets = propMarkets || internalMarkets;
+
+  // Update loading state when prop changes
   useEffect(() => {
-    loadMarkets();
+    setIsLoading(propIsLoading);
+  }, [propIsLoading]);
+
+  // Load markets only if none provided from parent
+  useEffect(() => {
+    if (!propMarkets) {
+      loadMarkets();
+    }
   }, [location]);
 
   // Apply filters and sorting
@@ -43,9 +76,14 @@ export default function ValidationAwareMarketSelector({
   }, [markets, searchQuery, filters, sortBy]);
 
   const loadMarkets = async () => {
+    if (propMarkets) {
+      setInternalMarkets(propMarkets);
+      return;
+    }
+    
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/markets?location=${encodeURIComponent(location)}&limit=50`);
+      const response = await fetch(`/api/markets?location=${encodeURIComponent(location || 'null')}&limit=50`);
       const data = await response.json();
       
       if (data.success && data.markets) {
@@ -53,7 +91,7 @@ export default function ValidationAwareMarketSelector({
         const enhancedMarkets = await Promise.all(
           data.markets.map(market => enhanceMarketWithValidation(market))
         );
-        setMarkets(enhancedMarkets);
+        setInternalMarkets(enhancedMarkets);
       }
     } catch (error) {
       console.error('Failed to load markets:', error);
@@ -257,13 +295,13 @@ export default function ValidationAwareMarketSelector({
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-10 bg-gray-200 rounded"></div>
-          <div className="space-y-3">
+      <div className={`${getCardBg()} ${getTextColor()} rounded-3xl shadow-xl p-8`}>
+        <div className="animate-pulse space-y-6">
+          <div className="h-6 bg-slate-200 rounded w-1/3"></div>
+          <div className="h-12 bg-slate-200 rounded"></div>
+          <div className="space-y-4">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-16 bg-gray-200 rounded"></div>
+              <div key={i} className="h-20 bg-slate-200 rounded-xl"></div>
             ))}
           </div>
         </div>
@@ -272,22 +310,22 @@ export default function ValidationAwareMarketSelector({
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+    <div className={`${getCardBg()} ${getTextColor()} rounded-3xl shadow-2xl overflow-hidden backdrop-blur-xl`}>
       {/* Header */}
-      <div className="bg-gray-50 border-b border-gray-200 p-4">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+      <div className={`p-8 border-b ${isNight ? 'border-slate-700/50' : 'border-slate-200/50'}`}>
+        <h3 className={`text-xl font-light ${getTextColor()} mb-6 tracking-wide`}>
           Select Market for Analysis
         </h3>
 
         {/* Search */}
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <div className="relative mb-6">
+          <Search className={`absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 ${getMutedText()}`} />
           <input
             type="text"
             placeholder="Search markets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={`w-full pl-12 pr-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
           />
         </div>
 
@@ -296,7 +334,7 @@ export default function ValidationAwareMarketSelector({
           <select
             value={filters.compatibility}
             onChange={(e) => handleFilterChange('compatibility', e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
           >
             <option value="all">All Compatibility</option>
             <option value="compatible">Weather Compatible</option>
@@ -306,7 +344,7 @@ export default function ValidationAwareMarketSelector({
           <select
             value={filters.riskLevel}
             onChange={(e) => handleFilterChange('riskLevel', e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
           >
             <option value="all">All Risk Levels</option>
             <option value="low">Low Risk</option>
@@ -317,7 +355,7 @@ export default function ValidationAwareMarketSelector({
           <select
             value={filters.dataQuality}
             onChange={(e) => handleFilterChange('dataQuality', e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
           >
             <option value="all">All Data Quality</option>
             <option value="excellent">Excellent</option>
@@ -328,7 +366,7 @@ export default function ValidationAwareMarketSelector({
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
           >
             <option value="volume">Sort by Volume</option>
             <option value="compatibility">Sort by Weather Compatibility</option>
@@ -341,17 +379,22 @@ export default function ValidationAwareMarketSelector({
       {/* Markets List */}
       <div className="max-h-96 overflow-y-auto">
         {filteredMarkets.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500">No markets match your criteria</p>
+          <div className="text-center py-12">
+            <p className={`${getMutedText()} text-lg`}>No markets match your criteria</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
+          <div className={`divide-y ${isNight ? 'divide-slate-700/50' : 'divide-slate-200/50'}`}>
             {filteredMarkets.map((market, index) => (
               <MarketCard
                 key={market.id || index}
                 market={market}
                 isSelected={selectedMarket?.id === market.id}
                 onSelect={() => onMarketSelect(market)}
+                isNight={isNight}
+                getTextColor={getTextColor}
+                getMutedText={getMutedText}
+                getAccentColor={getAccentColor}
+                getButtonBg={getButtonBg}
               />
             ))}
           </div>
@@ -359,67 +402,89 @@ export default function ValidationAwareMarketSelector({
       </div>
 
       {/* Footer Stats */}
-      <div className="bg-gray-50 border-t border-gray-200 p-4 text-sm text-gray-600">
+      <div className={`${isNight ? 'bg-slate-800/30 border-slate-700/50' : 'bg-slate-50/50 border-slate-200/50'} border-t p-6 text-sm ${getMutedText()}`}>
         Showing {filteredMarkets.length} of {markets.length} markets
       </div>
     </div>
   );
 }
 
-function MarketCard({ market, isSelected, onSelect }) {
+function MarketCard({
+  market,
+  isSelected,
+  onSelect,
+  isNight,
+  getTextColor,
+  getMutedText,
+  getAccentColor,
+  getButtonBg
+}) {
   const validation = market.validation || {};
 
+  // Extract pricing information
+  const volume = parseFloat(market.volume24h || 0);
+  const yesPrice = market.yesPrice || market.outcomes?.[0]?.price || 0;
+  const noPrice = market.noPrice || market.outcomes?.[1]?.price || 0;
+
   return (
-    <div 
-      className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
-        isSelected ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+    <div
+      className={`p-6 cursor-pointer transition-all duration-200 ${
+        isNight
+          ? (isSelected
+            ? 'bg-blue-900/30 border-l-4 border-blue-400/70'
+            : 'hover:bg-slate-800/30')
+          : (isSelected
+            ? 'bg-blue-50/50 border-l-4 border-blue-500/70'
+            : 'hover:bg-slate-50/50')
       }`}
       onClick={onSelect}
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
         {/* Title and Validation Badges */}
         <div className="flex items-start justify-between">
-          <h4 className="font-medium text-gray-900 flex-1 pr-4">
+          <h4 className={`font-medium ${getTextColor()} flex-1 pr-4 leading-relaxed`}>
             {market.title || market.question}
           </h4>
           
           <div className="flex items-center space-x-2 flex-shrink-0">
             {validation.weatherCompatible ? (
-              <div className="flex items-center space-x-1 text-green-600">
+              <div className={`flex items-center space-x-1 ${isNight ? 'text-green-400' : 'text-green-600'}`}>
                 <CheckCircle className="h-4 w-4" />
-                <span className="text-xs">Weather Compatible</span>
+                <span className="text-xs font-medium">Weather Compatible</span>
               </div>
             ) : (
-              <div className="flex items-center space-x-1 text-gray-500">
+              <div className={`flex items-center space-x-1 ${getMutedText()}`}>
                 <AlertTriangle className="h-4 w-4" />
-                <span className="text-xs">Limited Impact</span>
+                <span className="text-xs font-medium">Limited Impact</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Market Stats */}
-        <div className="flex items-center space-x-4 text-sm text-gray-600">
-          <div className="flex items-center space-x-1">
-            <Users className="h-4 w-4" />
-            <span>${parseFloat(market.volume24h || 0).toLocaleString()}</span>
-          </div>
-          
-          {market.endDate && (
-            <div className="flex items-center space-x-1">
-              <Clock className="h-4 w-4" />
-              <span>
-                {Math.max(0, Math.round((new Date(market.endDate) - new Date()) / (1000 * 60 * 60 * 24)))} days
-              </span>
-            </div>
-          )}
-
-          {market.currentOdds && (
+        {/* Market Stats and Prices */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-6 text-sm">
             <div className="flex items-center space-x-2">
-              <span className="text-green-600">YES {market.currentOdds.yes}</span>
-              <span className="text-red-600">NO {market.currentOdds.no}</span>
+              <Users className={`h-4 w-4 ${getMutedText()}`} />
+              <span className={getTextColor()}>${(volume / 1000000).toFixed(2)}M</span>
             </div>
-          )}
+            
+            {market.endDate && (
+              <div className="flex items-center space-x-2">
+                <Clock className={`h-4 w-4 ${getMutedText()}`} />
+                <span className={getTextColor()}>
+                  {Math.max(0, Math.round((new Date(market.endDate) - new Date()) / (1000 * 60 * 60 * 24)))} days
+                </span>
+              </div>
+            )}
+
+            {market.currentOdds && (
+              <div className="flex items-center space-x-2">
+                <span className="text-green-600">YES {market.currentOdds.yes}</span>
+                <span className="text-red-600">NO {market.currentOdds.no}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Validation Summary */}
@@ -437,7 +502,7 @@ function MarketCard({ market, isSelected, onSelect }) {
 
         {/* Warnings */}
         {validation.warnings && validation.warnings.length > 0 && (
-          <div className="text-xs text-amber-600">
+          <div className={`text-xs ${isNight ? 'text-amber-400' : 'text-amber-600'}`}>
             ⚠ {validation.warnings[0]}
             {validation.warnings.length > 1 && (
               <span> +{validation.warnings.length - 1} more</span>

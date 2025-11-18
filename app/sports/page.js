@@ -38,7 +38,7 @@ export default function AIPage() {
   const [selectedMarket, setSelectedMarket] = useState(null);
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(false);
   const [marketFilters, setMarketFilters] = useState({
-    eventType: 'all',
+    eventType: 'Sports',
     confidence: 'MEDIUM', // Default to HIGH+MEDIUM
     bestEdgesOnly: true // Toggle for best edges
   });
@@ -121,6 +121,36 @@ export default function AIPage() {
       hasData: true
     }
   };
+
+  // Log validation status for debugging (not user-facing)
+  React.useEffect(() => {
+    console.log('🔍 Validation Status:', {
+      location: {
+        valid: locationValidation?.aggregateValidation?.valid,
+        errors: locationValidation?.aggregateValidation?.errors?.length || 0,
+        warnings: locationValidation?.aggregateValidation?.warnings?.length || 0
+      },
+      weather: {
+        valid: weatherValidation?.aggregateValidation?.valid,
+        errors: weatherValidation?.aggregateValidation?.errors?.length || 0,
+        warnings: weatherValidation?.aggregateValidation?.warnings?.length || 0
+      },
+      market: {
+        valid: marketValidation?.aggregateValidation?.valid,
+        errors: marketValidation?.aggregateValidation?.errors?.length || 0,
+        warnings: marketValidation?.aggregateValidation?.warnings?.length || 0
+      },
+      trading: {
+        valid: tradingValidation?.aggregateValidation?.valid,
+        errors: tradingValidation?.aggregateValidation?.errors?.length || 0,
+        warnings: tradingValidation?.aggregateValidation?.warnings?.length || 0
+      },
+      isConnected,
+      selectedMarket: !!selectedMarket,
+      marketsCount: markets?.length || 0
+    });
+  }, [locationValidation, weatherValidation, marketValidation, tradingValidation, isConnected, selectedMarket, markets?.length]);
+
   const [timeOfDay, setTimeOfDay] = useState(() => {
     const hour = new Date().getHours();
     if (hour >= 19 || hour <= 6) return 'night';
@@ -128,7 +158,6 @@ export default function AIPage() {
     if (hour >= 17 && hour < 19) return 'dusk';
     return 'day';
   });
-
   // Load weather on mount
   useEffect(() => {
     loadWeather();
@@ -490,7 +519,7 @@ export default function AIPage() {
           </div>
         </header>
 
-        {/* Global Validation Status Bar */}
+        {/* Validation Status - Moved to console logs for debugging
         <ValidationStatusBar
           locationValidation={locationValidation}
           weatherValidation={weatherValidation}
@@ -500,6 +529,7 @@ export default function AIPage() {
           onToggleEnhanced={() => setUseEnhancedComponents(!useEnhancedComponents)}
           isNight={nightStatus}
         />
+        */}
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-12 flex-1">

@@ -116,8 +116,6 @@ class PolymarketService {
       return extractSportTag(sports.find(s => s.sport === key)?.tags);
     }
     
-    // Do not hard-map 'Sports' to a single tag; handle via theme filter instead
-    if (String(category).toLowerCase() === 'sports') return null;
     return categoryTagMap[category] || null;
   }
 

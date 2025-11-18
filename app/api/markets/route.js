@@ -22,7 +22,7 @@ export async function POST(request) {
       weatherData,
       eventType: eventType || 'all',
       confidence: confidence || 'all',
-      location: location || null, // Optional for filtering
+      location: location === null || location === undefined ? null : location, // Properly handle null/undefined location
       minVolume: typeof minVolume === 'number' ? minVolume : 50000,
       excludeFutures: excludeFutures !== false,
       searchText: searchText || null,
