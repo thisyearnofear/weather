@@ -87,12 +87,13 @@ class PolymarketService {
   }
 
   /**
-   * Get tag ID for a specific category (Sports, Politics, Crypto, etc.)
+   * Get tag ID(s) for a specific category (Sports, Politics, Crypto, etc.)
+   * For Soccer, returns an array of all soccer league tag IDs
    */
   async getCategoryTagId(category) {
     // Map of category names to Polymarket tag IDs
     const categoryTagMap = {
-      'Sports': '450',        // NFL tag (primary sports)
+      'Sports': null,         // CHANGED: Don't filter by tag - fetch all sports (NFL, Soccer, NBA, etc.)
       'Politics': '2',        // Politics
       'Crypto': '21',         // Crypto
       'Finance': '120',       // Finance
@@ -103,19 +104,55 @@ class PolymarketService {
       'Movies': '53',         // Movies
       'Weather': null         // Weather markets are identified by keywords, not tags
     };
-    
-    // For sports subcategories, fetch from sports metadata
-    if (['nfl', 'nba', 'mlb', 'nhl', 'soccer', 'tennis', 'cricket', 'rugby', 'golf', 'f1', 'formula 1'].includes(category.toLowerCase())) {
+
+    // SPECIAL CASE: Soccer - Polymarket uses league-specific tags, not a generic "soccer" tag
+    if (category.toLowerCase() === 'soccer') {
+      const sports = await this.getSportsMetadata();
+      // Soccer leagues: EPL, La Liga, UCL, Serie A, Bundesliga, Ligue 1, MLS, etc.
+      const soccerLeagueCodes = ['epl', 'lal', 'ucl', 'sea', 'bun', 'fl1', 'mls', 'uel',
+        'afc', 'ofc', 'fif', 'ere', 'arg', 'itc', 'mex', 'lcs',
+        'lib', 'sud', 'tur', 'con', 'cof', 'uef', 'caf', 'rus',
+        'efa', 'efl', 'cdr'];
+
+      const soccerTags = [];
+      for (const code of soccerLeagueCodes) {
+        const league = sports.find(s => s.sport === code);
+        if (league && league.tags) {
+          // Extract the league-specific tag (not the generic sports tag '1' or '100639')
+          const tagArray = league.tags.split(',');
+          const specificTag = tagArray.find(t => t !== '1' && t !== '100639');
+          if (specificTag) {
+            soccerTags.push(specificTag);
+          }
+        }
+      }
+
+      return soccerTags; // Return array of all soccer league tags
+    }
+
+    // For other sports subcategories, fetch from sports metadata
+    if (['nfl', 'nba', 'mlb', 'nhl', 'tennis', 'cricket', 'rugby', 'golf', 'f1', 'formula 1'].includes(category.toLowerCase())) {
       const sports = await this.getSportsMetadata();
       const extractSportTag = (tags) => {
         if (!tags) return null;
         const tagArray = tags.split(',');
         return tagArray.find(t => t !== '1' && t !== '100639') || tagArray[0];
       };
-      const key = category.toLowerCase() === 'formula 1' ? 'f1' : category.toLowerCase();
+
+      // Special case: F1 doesn't exist in /sports endpoint, use tag ID directly
+      if (category.toLowerCase() === 'f1' || category.toLowerCase() === 'formula 1') {
+        return '435'; // Formula 1 tag ID
+      }
+
+      // NFL uses tag 450
+      if (category.toLowerCase() === 'nfl') {
+        return '450'; // NFL tag ID
+      }
+
+      const key = category.toLowerCase();
       return extractSportTag(sports.find(s => s.sport === key)?.tags);
     }
-    
+
     return categoryTagMap[category] || null;
   }
 
@@ -139,7 +176,7 @@ class PolymarketService {
         params.tag_id = tagArray[0]; // Use first tag if provided
       }
 
-      const response = await axios.get(`${this.baseURL}/events`, { 
+      const response = await axios.get(`${this.baseURL}/events`, {
         params,
         timeout: 10000
       });
@@ -147,7 +184,7 @@ class PolymarketService {
       // Extract all markets from events
       const events = Array.isArray(response.data) ? response.data : (response.data?.events || []);
       let allMarkets = [];
-      
+
       for (const event of events) {
         if (event.markets && Array.isArray(event.markets)) {
           allMarkets = allMarkets.concat(
@@ -193,7 +230,7 @@ class PolymarketService {
 
       // Handle both array and object response formats
       const events = Array.isArray(response.data) ? response.data : (response.data?.events || []);
-      
+
       if (events && Array.isArray(events)) {
         // Find events matching the location
         for (const event of events) {
@@ -322,52 +359,228 @@ class PolymarketService {
       // Fetch events with full metadata (single page - 100 events should give 200+ markets)
       // Catalog is cached for 30min, so we can be conservative to reduce API load
       let allMarkets = [];
-      
+
       try {
-         const params = { limit: 100, offset: 0, closed: false };
-         
-         // If filtering by category, get tag ID and fetch those markets
-         if (eventTypeFilter && eventTypeFilter !== 'all' && eventTypeFilter !== 'Weather') {
-           const tagId = await this.getCategoryTagId(eventTypeFilter);
-           console.debug(`📌 Category filter: ${eventTypeFilter} -> tag_id: ${tagId}`);
-           if (tagId) {
-             params.tag_id = tagId;
-           }
-         }
-         
-         console.debug(`🔗 Fetching from ${this.baseURL}/events with params:`, params);
-         const response = await axios.get(`${this.baseURL}/events`, {
-           params,
-           timeout: 10000
-         });
+        // SPECIAL CASE: Soccer - fetch from all soccer league tags
+        if (eventTypeFilter === 'Soccer') {
+          console.debug(`⚽ Fetching Soccer markets from all leagues...`);
+          const soccerTags = await this.getCategoryTagId('Soccer'); // Returns array of league tags
 
-         console.debug(`📥 Response received:`, {
-           isArray: Array.isArray(response.data),
-           length: Array.isArray(response.data) ? response.data.length : 'N/A',
-           hasEvents: Array.isArray(response.data) ? response.data.some(e => e.markets) : false
-         });
+          if (soccerTags && Array.isArray(soccerTags) && soccerTags.length > 0) {
+            console.debug(`📌 Found ${soccerTags.length} soccer league tags`);
 
-         if (response.data && Array.isArray(response.data)) {
-           // Extract markets from events (each event can have multiple markets)
-           const events = response.data;
-           let marketCount = 0;
-           for (const event of events) {
-             if (event.markets && Array.isArray(event.markets)) {
-               const eventsMarkets = event.markets.map(m => ({
-                 ...m,
-                 eventTags: event.tags || [] // Include event tags for metadata extraction
-               }));
-               allMarkets = allMarkets.concat(eventsMarkets);
-               marketCount += eventsMarkets.length;
-             }
-           }
-           console.debug(`✨ Extracted ${marketCount} markets from ${events.length} events`);
-         }
-       } catch (fetchError) {
-         console.error(`❌ Error fetching events:`, fetchError.message);
-         console.error(`   Status: ${fetchError.response?.status}, Data: ${JSON.stringify(fetchError.response?.data)}`);
-         // Continue with empty allMarkets - will be caught in caller
-       }
+            // Fetch events for each soccer league tag
+            const soccerEvents = [];
+            for (const tagId of soccerTags.slice(0, 10)) { // Limit to top 10 leagues to avoid too many requests
+              try {
+                const response = await axios.get(`${this.baseURL}/events`, {
+                  params: {
+                    tag_id: tagId,
+                    closed: false,
+                    limit: 50 // 50 events per league
+                  },
+                  timeout: 10000
+                });
+
+                if (response.data && Array.isArray(response.data)) {
+                  soccerEvents.push(...response.data);
+                }
+              } catch (err) {
+                console.debug(`   ⚠️ Error fetching tag ${tagId}:`, err.message);
+              }
+            }
+
+            console.debug(`✅ Fetched ${soccerEvents.length} soccer events from ${soccerTags.slice(0, 10).length} leagues`);
+
+            // Extract markets from soccer events
+            const now = new Date();
+            const maxDaysOut = 60;
+            const maxDate = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000);
+
+            for (const event of soccerEvents) {
+              const endDate = event.endDate || event.end_date;
+              if (endDate) {
+                const eventEndDate = new Date(endDate);
+                if (eventEndDate > maxDate) {
+                  continue;
+                }
+              }
+
+              if (event.markets && Array.isArray(event.markets)) {
+                const eventsMarkets = event.markets.map(m => ({
+                  ...m,
+                  eventTags: event.tags || [],
+                  endDate: m.endDate || event.endDate || event.end_date,
+                  eventType: 'Soccer' // Explicitly set eventType for soccer markets
+                }));
+                allMarkets = allMarkets.concat(eventsMarkets);
+              }
+            }
+
+            console.debug(`✨ Extracted ${allMarkets.length} soccer markets`);
+          } else {
+            console.warn(`⚠️ No soccer league tags found`);
+          }
+        }
+        // SPECIAL CASE: NFL - fetch using NFL tag
+        else if (eventTypeFilter === 'NFL') {
+          console.debug(`🏈 Fetching NFL markets...`);
+          const tagId = await this.getCategoryTagId('NFL'); // Returns '450'
+
+          if (tagId) {
+            const response = await axios.get(`${this.baseURL}/events`, {
+              params: {
+                tag_id: tagId,
+                closed: false,
+                limit: 100
+              },
+              timeout: 10000
+            });
+
+            if (response.data && Array.isArray(response.data)) {
+              const now = new Date();
+              const maxDaysOut = 60;
+              const maxDate = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000);
+
+              for (const event of response.data) {
+                const endDate = event.endDate || event.end_date;
+                if (endDate) {
+                  const eventEndDate = new Date(endDate);
+                  if (eventEndDate > maxDate) continue;
+                }
+
+                if (event.markets && Array.isArray(event.markets)) {
+                  const eventsMarkets = event.markets.map(m => ({
+                    ...m,
+                    eventTags: event.tags || [],
+                    endDate: m.endDate || event.endDate || event.end_date,
+                    eventType: 'NFL' // Explicitly set eventType
+                  }));
+                  allMarkets.push(...eventsMarkets);
+                }
+              }
+              console.debug(`✨ Extracted ${allMarkets.length} NFL markets`);
+            }
+          }
+        }
+        // SPECIAL CASE: F1 - fetch using F1 tag
+        else if (eventTypeFilter === 'F1') {
+          console.debug(`🏎️ Fetching F1 markets...`);
+          const tagId = await this.getCategoryTagId('F1'); // Returns '435'
+
+          if (tagId) {
+            const response = await axios.get(`${this.baseURL}/events`, {
+              params: {
+                tag_id: tagId,
+                closed: false,
+                limit: 100
+              },
+              timeout: 10000
+            });
+
+            if (response.data && Array.isArray(response.data)) {
+              const now = new Date();
+              const maxDaysOut = 60;
+              const maxDate = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000);
+
+              for (const event of response.data) {
+                const endDate = event.endDate || event.end_date;
+                if (endDate) {
+                  const eventEndDate = new Date(endDate);
+                  if (eventEndDate > maxDate) continue;
+                }
+
+                if (event.markets && Array.isArray(event.markets)) {
+                  const eventsMarkets = event.markets.map(m => ({
+                    ...m,
+                    eventTags: event.tags || [],
+                    endDate: m.endDate || event.endDate || event.end_date,
+                    eventType: 'F1' // Explicitly set eventType
+                  }));
+                  allMarkets.push(...eventsMarkets);
+                }
+              }
+              console.debug(`✨ Extracted ${allMarkets.length} F1 markets`);
+            }
+          }
+        }
+        // For other sports or categories, use existing logic
+        else {
+          const sportTypes = ['Sports', 'NBA', 'MLB', 'NHL', 'Tennis', 'Golf', 'Cricket'];
+          const isSportsFilter = sportTypes.includes(eventTypeFilter);
+
+          // Set up fetch parameters
+          const params = {
+            limit: 200,
+            offset: 0,
+            closed: false
+          };
+
+          // If filtering by non-sports category, get tag ID and fetch those markets
+          if (!isSportsFilter && eventTypeFilter && eventTypeFilter !== 'all' && eventTypeFilter !== 'Weather') {
+            const tagId = await this.getCategoryTagId(eventTypeFilter);
+            console.debug(`📌 Category filter: ${eventTypeFilter} -> tag_id: ${tagId}`);
+            if (tagId) {
+              params.tag_id = tagId;
+            }
+          }
+
+          console.debug(`🔗 Fetching from ${this.baseURL}/events with params:`, params);
+          const response = await axios.get(`${this.baseURL}/events`, {
+            params,
+            timeout: 10000
+          });
+
+          console.debug(`📥 Response received:`, {
+            isArray: Array.isArray(response.data),
+            length: Array.isArray(response.data) ? response.data.length : 'N/A',
+            hasEvents: Array.isArray(response.data) ? response.data.some(e => e.markets) : false
+          });
+
+          if (response.data && Array.isArray(response.data)) {
+            // Extract markets from events (each event can have multiple markets)
+            const events = response.data;
+            let marketCount = 0;
+            const now = new Date();
+            const maxDaysOut = 60; // Fetch up to 60 days, we'll filter more aggressively later
+            const maxDate = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000);
+
+            for (const event of events) {
+              // Filter events by end date at extraction time
+              const endDate = event.endDate || event.end_date;
+              if (endDate) {
+                const eventEndDate = new Date(endDate);
+                if (eventEndDate > maxDate) {
+                  continue; // Skip far-future events
+                }
+              }
+
+              if (event.markets && Array.isArray(event.markets)) {
+                const eventsMarkets = event.markets.map(m => ({
+                  ...m,
+                  eventTags: event.tags || [], // Include event tags for metadata extraction
+                  endDate: m.endDate || event.endDate || event.end_date // Ensure endDate is propagated
+                }));
+                allMarkets = allMarkets.concat(eventsMarkets);
+                marketCount += eventsMarkets.length;
+              }
+            }
+            console.debug(`✨ Extracted ${marketCount} markets from ${events.length} events (filtered to ≤${maxDaysOut} days)`);
+
+            // DEBUG: Log sample of fetched markets
+            if (allMarkets.length > 0) {
+              console.debug(`📝 Sample of fetched markets:`);
+              allMarkets.slice(0, 5).forEach((m, idx) => {
+                console.debug(`   ${idx + 1}. ${(m.title || '').substring(0, 60)}`);
+              });
+            }
+          }
+        }
+      } catch (fetchError) {
+        console.error(`❌ Error fetching events:`, fetchError.message);
+        console.error(`   Status: ${fetchError.response?.status}, Data: ${JSON.stringify(fetchError.response?.data)}`);
+        // Continue with empty allMarkets - will be caught in caller
+      }
 
       // Index and enrich with metadata (WITHOUT order book - defer that for final results)
       const baseCatalog = allMarkets
@@ -382,7 +595,7 @@ class PolymarketService {
         // Use eventTags (from parent event) for more reliable detection
         const tags = market.eventTags || market.tags || [];
         const metadata = this.extractMarketMetadata(title, tags);
-        
+
         // DEBUG: Log markets without eventType for troubleshooting
         if (!metadata.event_type) {
           console.debug(`📍 No event_type detected for: "${title.substring(0, 50)}..." | Tags: ${JSON.stringify(tags)}`);
@@ -397,13 +610,39 @@ class PolymarketService {
           const titleLower = title.toLowerCase();
           const descLower = (market.description || '').toLowerCase();
           const text = `${titleLower} ${descLower}`;
-          if (text.includes('nfl') || text.includes('football')) eventType = 'NFL';
-          else if (text.includes('soccer') || text.includes('football') || text.includes('premier league')) eventType = 'Soccer';
-          else if (text.includes('nba') || text.includes('basketball')) eventType = 'NBA';
-          else if (text.includes('mlb') || text.includes('baseball')) eventType = 'MLB';
-          else if (text.includes('hockey') || text.includes('nhl')) eventType = 'NHL';
+
+          // Check for soccer FIRST (before football which could match both)
+          if (text.includes('premier league') || text.includes('champions league') ||
+            text.includes('liverpool') || text.includes('arsenal') || text.includes('chelsea') ||
+            text.includes('manchester') || text.includes('tottenham') || text.includes('soccer')) {
+            eventType = 'Soccer';
+          }
+          // Then check for American football - use word boundaries to avoid false positives
+          else if (/\bnfl\b/i.test(text) || text.includes('super bowl') ||
+            text.includes('patriots') || text.includes('cowboys') || text.includes('chiefs')) {
+            eventType = 'NFL';
+          }
+          // Use word boundaries for NBA, MLB, NHL to avoid false positives
+          else if (/\bnba\b/i.test(text) || text.includes('basketball') || text.includes('lakers') || text.includes('celtics')) {
+            eventType = 'NBA';
+          }
+          else if (/\bmlb\b/i.test(text) || text.includes('baseball') || text.includes('yankees') || text.includes('dodgers')) {
+            eventType = 'MLB';
+          }
+          else if (text.includes('hockey') || /\bnhl\b/i.test(text)) {
+            eventType = 'NHL';
+          }
+          else if (/\bf1\b/i.test(text) || text.includes('formula 1') || text.includes('formula one') || text.includes('grand prix')) {
+            eventType = 'F1';
+          }
+          else if (text.includes('tennis') || text.includes('wimbledon') || text.includes('us open')) {
+            eventType = 'Tennis';
+          }
+          else if (text.includes('golf') || /\bpga\b/i.test(text) || text.includes('masters')) {
+            eventType = 'Golf';
+          }
         }
-        
+
         return {
           marketID: market.tokenID || market.id,
           title,
@@ -440,11 +679,11 @@ class PolymarketService {
 
           rawMarket: market // Keep original for reference
         };
-        });
+      });
 
-        // Sort by volume (no second pass - let getTopWeatherSensitiveMarkets handle order book enrichment)
-        baseEnrichedMarkets.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
-        const catalog = baseEnrichedMarkets;
+      // Sort by volume (no second pass - let getTopWeatherSensitiveMarkets handle order book enrichment)
+      baseEnrichedMarkets.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
+      const catalog = baseEnrichedMarkets;
 
       const result = {
         markets: catalog,
@@ -497,8 +736,8 @@ class PolymarketService {
 
     // Factor 1: Weather-Direct (market explicitly about weather)
     let weatherDirect = 0;
-    if (title.includes('weather') || title.includes('temperature') || 
-        title.includes('rain') || title.includes('snow') || title.includes('wind')) {
+    if (title.includes('weather') || title.includes('temperature') ||
+      title.includes('rain') || title.includes('snow') || title.includes('wind')) {
       weatherDirect = 3;
     }
 
@@ -507,11 +746,11 @@ class PolymarketService {
     const sportEvents = ['nfl', 'nba', 'mlb', 'golf', 'tennis', 'cricket', 'soccer', 'rugby', 'f1', 'formula 1'];
     const type = String(market.eventType || market.event_type || '').toLowerCase();
     const teams = Array.isArray(market.teams) ? market.teams : [];
-    const isSportByType = ['nfl','nba','mlb','nhl','soccer','golf','tennis','f1','formula 1','cricket','rugby','marathon'].includes(type);
+    const isSportByType = ['nfl', 'nba', 'mlb', 'nhl', 'soccer', 'golf', 'tennis', 'f1', 'formula 1', 'cricket', 'rugby', 'marathon'].includes(type);
     const isSportByTeams = teams.length > 0;
     const isSportEvent = isSportByType || isSportByTeams || sportEvents.some(sport => title.includes(sport) || tags.includes(sport));
     const isOutdoorEvent = title.includes('marathon') || title.includes('race') || isSportEvent;
-    
+
     if (isOutdoorEvent) {
       weatherSensitiveEvent = 2;
     }
@@ -526,8 +765,8 @@ class PolymarketService {
       if ((precipChance && precipChance > 30) && (title.includes('rain') || title.includes('snow'))) {
         contextualWeatherImpact += 1.5;
       }
-      if ((currentTemp && (currentTemp < 45 || currentTemp > 85)) && 
-          (title.includes('cold') || title.includes('heat') || title.includes('temperature'))) {
+      if ((currentTemp && (currentTemp < 45 || currentTemp > 85)) &&
+        (title.includes('cold') || title.includes('heat') || title.includes('temperature'))) {
         contextualWeatherImpact += 1;
       }
       if ((humidity && humidity > 70) && (title.includes('humidity') || title.includes('moisture'))) {
@@ -665,17 +904,17 @@ class PolymarketService {
   async getTopWeatherSensitiveMarkets(limit = 10, filters = {}) {
     try {
       const analysisType = filters.analysisType || 'discovery';
-      
+
       // Get full catalog (without order book enrichment to avoid rate limits)
       const catalogResult = await this.buildMarketCatalog(filters.minVolume || 50000, filters.eventType);
-      
+
       console.debug(`📦 Market catalog built:`, {
         total: catalogResult.markets?.length,
         minVolume: filters.minVolume,
         eventType: filters.eventType,
         cached: catalogResult.cached
       });
-      
+
       if (!catalogResult.markets || catalogResult.markets.length === 0) {
         console.warn(`⚠️ Empty catalog result. Error: ${catalogResult.error}`);
         return {
@@ -688,7 +927,7 @@ class PolymarketService {
 
       // Score each market based on analysis type
       let scoredMarkets;
-      
+
       if (analysisType === 'event-weather') {
         // /ai page: Fetch weather at event venues and score by weather impact
         console.debug(`⚡ Scoring ${catalogResult.markets.length} markets for event-weather analysis`);
@@ -698,7 +937,7 @@ class PolymarketService {
               // Extract event venue from market data
               const venue = VenueExtractor.extractFromMarket(market);
               let eventWeather = null;
-              
+
               if (venue && VenueExtractor.isValidVenue(venue)) {
                 try {
                   // Fetch weather at the event location (not user location)
@@ -711,10 +950,10 @@ class PolymarketService {
               } else {
                 console.debug(`  [${idx}] ✗ ${market.title?.substring(0, 40)} - no venue found`);
               }
-              
+
               const edgeAssessment = this.assessMarketWeatherEdge(market, eventWeather);
               console.debug(`    → Score: ${edgeAssessment.totalScore.toFixed(1)} | Type: ${market.eventType} | Confidence: ${edgeAssessment.confidence}`);
-              
+
               return {
                 ...market,
                 eventLocation: venue,
@@ -760,8 +999,7 @@ class PolymarketService {
         });
       }
 
-      // FILTER 1: Only markets with actual weather edge (score > 0) OR sports markets (for /sports page)
-      // Note: Category filtering now happens at fetch time via tag_id parameter
+      // FILTER 1: Filter by event type if specified
       const preFilterCount = scoredMarkets.length;
       const scoreDistribution = scoredMarkets.reduce((acc, m) => {
         const bucket = m.edgeScore === 0 ? '0' : (m.edgeScore < 1 ? '0-1' : (m.edgeScore < 3 ? '1-3' : '3+'));
@@ -769,29 +1007,74 @@ class PolymarketService {
         return acc;
       }, {});
       console.debug(`📊 Edge score distribution (pre-filter): Total=${preFilterCount}`, scoreDistribution);
-      
-      let filtered = scoredMarkets.filter(m => {
-        // For event-weather analysis (/sports page), include sports markets even with 0 score
-        // They should still be ranked by volume and confidence
-        if (analysisType === 'event-weather') {
-          const eventType = String(m.eventType || '').toUpperCase();
-          const isSupported = ['NFL', 'SOCCER', 'NBA', 'MLB', 'HOCKEY', 'TENNIS', 'GOLF', 'CRICKET', 'F1'].some(sport => eventType.includes(sport));
-          return m.edgeScore > 0 || isSupported;
-        }
-        // For discovery, strict edge score requirement
-        return m.edgeScore > 0;
-      });
-      console.debug(`🔍 After edge score filter (> 0 or sports for /ai): ${filtered.length}/${preFilterCount} markets remain`);
 
-      // FILTER 2: Optionally exclude futures bets where weather analysis is weak
-      // NOTE: For /sports page (event-weather analysis), we keep futures since weather is relevant for upcoming events
-      const excludeFutures = filters.excludeFutures !== false && analysisType !== 'event-weather';
+      let filtered = scoredMarkets;
+
+      // Apply event type filter if specified
+      if (filters.eventType && filters.eventType !== 'all' && filters.eventType !== 'Sports') {
+        const targetType = filters.eventType.toUpperCase();
+        const beforeTypeFilter = filtered.length;
+
+        // DEBUG: Log what eventTypes we have before filtering
+        const eventTypeCounts = filtered.reduce((acc, m) => {
+          const type = m.eventType || 'None';
+          acc[type] = (acc[type] || 0) + 1;
+          return acc;
+        }, {});
+        console.debug(`📋 Event types before filter:`, eventTypeCounts);
+
+        filtered = filtered.filter(m => {
+          const eventType = String(m.eventType || '').toUpperCase();
+          // Also check title for sport keywords if eventType is missing
+          const title = String(m.title || '').toUpperCase();
+          const matches = eventType.includes(targetType) || title.includes(targetType);
+
+          // DEBUG: Log first few non-matches for Soccer
+          if (!matches && targetType === 'SOCCER' && beforeTypeFilter < 10) {
+            console.debug(`   ✗ Filtered out: "${m.title?.substring(0, 50)}" (eventType: ${m.eventType || 'None'})`);
+          }
+
+          return matches;
+        });
+        console.debug(`🏷️  Event type filter (${filters.eventType}): ${beforeTypeFilter} → ${filtered.length}`);
+
+        // DEBUG: If we got 0 results for Soccer, show what we had
+        if (filtered.length === 0 && targetType === 'SOCCER') {
+          console.warn(`⚠️  Zero Soccer markets after filter. Sample of what was available:`);
+          scoredMarkets.slice(0, 5).forEach(m => {
+            console.warn(`   - "${m.title?.substring(0, 60)}" (eventType: ${m.eventType || 'None'})`);
+          });
+        }
+      } else if (filters.eventType === 'Sports' || filters.eventType === 'all') {
+        // For "Sports" or "all" filter, include only recognized sports (not Tesla, movies, etc.)
+        const beforeSportsFilter = filtered.length;
+        filtered = filtered.filter(m => {
+          const eventType = String(m.eventType || '').toUpperCase();
+          const title = String(m.title || '').toUpperCase();
+          const text = `${eventType} ${title}`;
+          const isSport = ['NFL', 'SOCCER', 'NBA', 'MLB', 'NHL', 'HOCKEY', 'TENNIS', 'GOLF', 'CRICKET', 'F1', 'FORMULA', 'RUGBY', 'MARATHON', 'PREMIER LEAGUE', 'CHAMPIONS LEAGUE'].some(sport => text.includes(sport));
+          return isSport;
+        });
+        console.debug(`🏈 Sports filter (${filters.eventType}): ${beforeSportsFilter} → ${filtered.length}`);
+      }
+
+      // For event-weather analysis, we want sports markets even with low edge scores
+      // For discovery, require edge score > 0
+      if (analysisType === 'discovery') {
+        const beforeEdgeFilter = filtered.length;
+        filtered = filtered.filter(m => m.edgeScore > 0);
+        console.debug(`🔍 Edge score filter (> 0): ${beforeEdgeFilter} → ${filtered.length}`);
+      }
+
+      // FILTER 2: Exclude futures bets where weather analysis is weak
+      // CRITICAL: Apply this for ALL analysis types - futures (season winners, championships) 
+      // are not weather-sensitive since they aggregate many games over months
       const beforeFuturesCount = filtered.length;
-      if (excludeFutures) {
+      if (filters.excludeFutures !== false) {
         filtered = filtered.filter(m => !MarketTypeDetector.isFuturesBet(m));
-        console.debug(`  Futures filter: ${beforeFuturesCount} → ${filtered.length}`);
-      } else if (analysisType === 'event-weather') {
-        console.debug(`  Futures filter: SKIPPED for /sports page (keeping all sports events)`);
+        console.debug(`  Futures filter (excludeFutures=${filters.excludeFutures}): ${beforeFuturesCount} → ${filtered.length}`);
+      } else {
+        console.debug(`  Futures filter: DISABLED by user (includeFutures=true)`);
       }
 
       // FILTER 3: Confidence level tiers
@@ -811,30 +1094,26 @@ class PolymarketService {
       // FILTER 4: Location if user provided (optional, for personalization)
       const beforeLocationCount = filtered.length;
       if (filters.location) {
-        filtered = filtered.filter(m => 
+        filtered = filtered.filter(m =>
           m.location && m.location.toLowerCase() === filters.location.toLowerCase()
         );
         console.debug(`  Location filter: ${beforeLocationCount} → ${filtered.length}`);
       }
 
       // FILTER 5: Max days to resolution (short horizon focus)
-      // NOTE: For /sports page (event-weather), we skip this since sports events are always in the future
+      // CRITICAL: Apply this filter for ALL analysis types - weather forecasts are only reliable 7-14 days out
       const beforeDaysCount = filtered.length;
-      if (filters.maxDaysToResolution && Number.isFinite(filters.maxDaysToResolution) && analysisType !== 'event-weather') {
+      if (filters.maxDaysToResolution && Number.isFinite(filters.maxDaysToResolution)) {
         const maxDays = Number(filters.maxDaysToResolution);
         filtered = filtered.filter(m => {
           const res = m.resolutionDate;
-          if (!res) return true; // keep if unknown
+          if (!res) return false; // Exclude markets without resolution dates (likely futures)
           const d = new Date(res);
-          if (isNaN(d.getTime())) return true;
+          if (isNaN(d.getTime())) return false; // Exclude invalid dates
           const days = (d - new Date()) / (1000 * 60 * 60 * 24);
-          return days <= maxDays;
+          return days >= 0 && days <= maxDays; // Must be in future AND within max days
         });
-        if (beforeDaysCount !== filtered.length) {
-          console.debug(`  MaxDays filter (${filters.maxDaysToResolution}d): ${beforeDaysCount} → ${filtered.length}`);
-        }
-      } else if (analysisType === 'event-weather') {
-        console.debug(`  MaxDays filter: SKIPPED for /sports page (sports are always future events)`);
+        console.debug(`  MaxDays filter (${filters.maxDaysToResolution}d): ${beforeDaysCount} → ${filtered.length}`);
       }
 
       // FILTER 5: Free-text search across title/description/tags
@@ -1023,7 +1302,7 @@ class PolymarketService {
       const opportunities = markets.markets.map(market => {
         // Validate market data quality
         const marketValidation = MarketDataValidator.validateMarketData('market', market);
-        
+
         return {
           marketID: market.tokenID || market.id,
           title: market.title || market.question,
@@ -1173,122 +1452,122 @@ class PolymarketService {
 
     // Common city names and locations (deduplicated)
     const cityNames = [
-      'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 'Philadelphia', 
-      'San Antonio', 'San Diego', 'Dallas', 'San Jose', 'Austin', 'Jacksonville', 
-      'Fort Worth', 'Columbus', 'Charlotte', 'San Francisco', 'Indianapolis', 
-      'Seattle', 'Denver', 'Washington', 'Boston', 'El Paso', 'Nashville', 
-      'Detroit', 'Oklahoma City', 'Portland', 'Las Vegas', 'Memphis', 'Louisville', 
-      'Baltimore', 'Milwaukee', 'Albuquerque', 'Tucson', 'Fresno', 'Sacramento', 
-      'Mesa', 'Kansas City', 'Atlanta', 'Long Beach', 'Colorado Springs', 
-      'Raleigh', 'Miami', 'Virginia Beach', 'Omaha', 'Oakland', 'Minneapolis', 
-      'Tulsa', 'Arlington', 'Tampa', 'New Orleans', 'Wichita', 'Cleveland', 
-      'Bakersfield', 'Aurora', 'Anaheim', 'Honolulu', 'Santa Ana', 'Riverside', 
-      'Corpus Christi', 'Lexington', 'Stockton', 'St. Louis', 'Saint Paul', 
-      'Henderson', 'Pittsburgh', 'Cincinnati', 'Anchorage', 'Greensboro', 
-      'Plano', 'Newark', 'Lincoln', 'Orlando', 'Irvine', 'Toledo', 'Jersey City', 
-      'Chula Vista', 'Durham', 'Fort Wayne', 'St. Petersburg', 'Laredo', 
-      'Buffalo', 'Madison', 'Lubbock', 'Chandler', 'Scottsdale', 'Reno', 
-      'Glendale', 'Gilbert', 'Winston-Salem', 'North Las Vegas', 'Norfolk', 
-      'Chesapeake', 'Garland', 'Irving', 'Hialeah', 'Fremont', 'Boise', 
-      'Richmond', 'Baton Rouge', 'Des Moines', 'Spokane', 'Modesto', 'Fayetteville', 
-      'Tacoma', 'Oxnard', 'Fontana', 'Montgomery', 'Moreno Valley', 
-      'Shreveport', 'Yonkers', 'Akron', 'Huntington Beach', 'Little Rock', 
-      'Augusta', 'Amarillo', 'Mobile', 'Grand Rapids', 'Salt Lake City', 
-      'Tallahassee', 'Huntsville', 'Grand Prairie', 'Knoxville', 'Worcester', 
-      'Newport News', 'Brownsville', 'Overland Park', 'Santa Clarita', 'Providence', 
-      'Garden Grove', 'Chattanooga', 'Oceanside', 'Jackson', 'Fort Lauderdale', 
-      'Santa Rosa', 'Port St. Lucie', 'Ontario', 'Vancouver', 'Tempe', 'Springfield', 
-      'Lancaster', 'Eugene', 'Pembroke Pines', 'Salem', 'Cape Coral', 'Peoria', 
-      'Sioux Falls', 'Elk Grove', 'Rockford', 'Palmdale', 'Corona', 
-      'Salinas', 'Pomona', 'Pasadena', 'Joliet', 'Paterson', 
-      'Torrance', 'Syracuse', 'Bridgeport', 'Hayward', 'Fort Collins', 'Escondido', 
-      'Lakewood', 'Naperville', 'Dayton', 'Hollywood', 'Sunnyvale', 'Alexandria', 
-      'Mesquite', 'Hampton', 'Orange', 'Savannah', 'Cary', 'Fullerton', 
-      'Warren', 'Clarksville', 'McKinney', 'McAllen', 'New Haven', 'Sterling Heights', 
-      'West Valley City', 'Columbia', 'Killeen', 'Topeka', 'Thousand Oaks', 
-      'Cedar Rapids', 'Olathe', 'Elizabeth', 'Waco', 'Hartford', 'Visalia', 
-      'Gainesville', 'Simi Valley', 'Stamford', 'Bellevue', 'Concord', 'Miramar', 
-      'Coral Springs', 'Lafayette', 'Charleston', 'Carrollton', 'Roseville', 
-      'Thornton', 'Beaumont', 'Allentown', 'Surprise', 'Evansville', 'Abilene', 
-      'Frisco', 'Independence', 'Santa Clara', 'Vallejo', 'Victorville', 
-      'Athens', 'Lansing', 'Ann Arbor', 'El Monte', 'Denton', 'Berkeley', 
-      'Provo', 'Downey', 'Midland', 'Norman', 'Waterbury', 'Costa Mesa', 'Inglewood', 
-      'Manchester', 'Murfreesboro', 'Elgin', 'Clearwater', 'Miami Gardens', 
-      'Rochester', 'Pueblo', 'Lowell', 'Wilmington', 'Arvada', 'San Buenaventura', 
-      'Westminster', 'West Covina', 'Gresham', 'Fargo', 'Norwalk', 'Carlsbad', 
-      'Fairfield', 'Cambridge', 'Wichita Falls', 'High Point', 'Billings', 
-      'Green Bay', 'Tyler', 'San Mateo', 'Lewisville', 'Davie', 'League City', 
-      'Rialto', 'Yakima', 'Broken Arrow', 'Round Rock', 'West Palm Beach', 
-      'Burbank', 'Arden-Arcade', 'Allen', 'El Cajon', 'Las Cruces', 
-      'Renton', 'Daly City', 'Sparks', 'Nampa', 'South Bend', 
-      'Dearborn', 'Livonia', 'Tuscaloosa', 'Vacaville', 'Brockton', 
-      'Roswell', 'Beaverton', 'Quincy', 'Lawrence', 'Clovis', 
-      'Macon', 'Santa Maria', 'Kenosha', 'Bellingham', 'Sandy Springs', 
-      'Gary', 'Bend', 'Meridian', 'Mission Viejo', 'Longmont', 
-      'Farmington Hills', 'Boulder', 'San Luis Obispo', 'Schaumburg', 'Kingsport', 
-      'Lynn', 'Redding', 'New Bedford', 'Chico', 'Camden', 'South Gate', 
-      'San Angelo', 'Portsmouth', 'Temecula', 'Carmel', 'Bloomington', 
-      'Warner Robins', 'Somerville', 'Janesville', 'Champaign', 
-      'Alhambra', 'Chino', 'Davis', 'Redwood City', 'Nashua', 'Bethlehem', 
-      'Lakeland', 'Reading', 'Antioch', 'Hawthorne', 
-      'Whittier', 'Greeley', 'Citrus Heights', 'Petaluma', 
-      'Flint', 'Waukegan', 'Merced', 
-      'Kalamazoo', 'Cranston', 'Parma', 
-      'Gilroy', 'Pasco', 'Pompano Beach', 
-      'St. Clair Shores', 'Rockville', 'Trenton', 'Compton', 'Bossier City', 
-      'Dearborn Heights', 'Lawton', 'Vineland', 'Suffolk', 'Waukesha', 
-      'Mount Pleasant', 'Berwyn', 'Bowie', 'Evanston', 'Cypress', 
-      'Coeur d\'Alene', 'Seaside', 'Hillsboro', 'North Lauderdale', 'Mishawaka', 
-      'Silver Spring', 'Dale City', 'Sherman', 'Kendall', 'Orem', 
-      'Boca Raton', 'Lynnwood', 'Southfield', 'New Britain', 
-      'Chino Hills', 'Redlands', 
-      'Decatur', 'Hammond', 'Haverhill', 'Plantation', 'San Leandro', 'Rocky Mount', 
-      'Wheaton', 'Glen Burnie', 'Fort Smith', 'Bayonne', 'Kokomo', 
-      'Lees Summit', 'Harlingen', 'Dubuque', 'Casper', 'Scranton', 'Pine Hills', 
-      'Livermore', 'Plymouth', 'Riverton', 'Kirkland', 'Owensboro', 
-      'Johns Creek', 'Beloit', 
-      'Union City', 'Annandale', 
-      'Ellicott City', 'Apple Valley', 'Largo', 'Wyoming', 'Redmond', 'Yuba City', 
-      'Baldwin Park', 'West Des Moines', 'Greenwood', 'Gastonia', 'San Ramon', 
-      'Cheyenne', 'New Braunfels', 'Medford', 'Port Arthur', 
-      'St. Charles', 'Rancho Cordova', 'St. Cloud', 'Carson', 
-      'Yorba Linda', 'Palm Bay', 'Cupertino', 'Cathedral City', 
-      'Bentonville', 'Albany', 'Sammamish', 'Pleasanton', 'Benton Harbor', 
-      'Florence', 'Fall River', 'Cicero', 'Palm Coast', 'Avondale', 
-      'Glenview', 'Marietta', 'Homestead', 'Troy', 'Farmers Branch', 
-      'Spring Hill', 'Casas Adobes', 'Temple', 'Keller', 'Grand Junction', 
-      'West Allis', 'Waltham', 'Pawtucket', 'Pico Rivera', 
-      'West Sacramento', 'North Charleston', 'Bismarck', 'Blaine', 
-      'Longview', 'Caldwell', 'Cedar Park', 'Corvallis', 
-      'The Woodlands', 'League City', 
-      'Buena Park', 'Mission', 'Prescott Valley', 'Terre Haute', 
-      'Hoboken', 'Palm Beach Gardens', 
-      'Brooklyn Park', 'Richland', 
-      'Fishers', 
-      'Manteca', 'Bolingbrook', 'Lehi', 'Beavercreek', 'El Dorado Hills', 
-      'Pearland', 'Lynwood', 'Mountain View', 
-      'Norwalk', 'Rancho Cucamonga', 'St. Peters', 'Milpitas', 
-      'Franklin', 'Kennewick', 'Biloxi', 'Newton', 
-      'San Bruno', 'Greenville', 'Wausau', 'Westfield', 
-      'Hendersonville', 'Perris', 'Rocklin', 'Goodyear', 'Doral', 
-      'Brentwood', 
-      'Watsonville', 'Palm Desert', 'West Haven', 
-      'Lawrence', 'Edinburg', 
-      'Minnetonka', 
-      'Flagstaff', 'Euless', 'North Miami', 'Eden Prairie', 'Grand Forks', 
-      'Sandusky', 'Fond du Lac', 'Colonial Heights', 'Everett', 
-      'East Lansing', 'Bristol', 
-      'Hazleton', 'East Providence', 
-      'Manhattan', 
-      'Miami Beach', 'Coon Rapids', 
-      'Lakeville', 'Bowling Green', 
-      'Rapid City', 
-      'Buffalo Grove', 
-      'Winter Haven', 'Middletown', 
-      'Weymouth', 
-      'Grand Island', 
-      'Carbondale', 
-      'Cleveland Heights', 
+      'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 'Philadelphia',
+      'San Antonio', 'San Diego', 'Dallas', 'San Jose', 'Austin', 'Jacksonville',
+      'Fort Worth', 'Columbus', 'Charlotte', 'San Francisco', 'Indianapolis',
+      'Seattle', 'Denver', 'Washington', 'Boston', 'El Paso', 'Nashville',
+      'Detroit', 'Oklahoma City', 'Portland', 'Las Vegas', 'Memphis', 'Louisville',
+      'Baltimore', 'Milwaukee', 'Albuquerque', 'Tucson', 'Fresno', 'Sacramento',
+      'Mesa', 'Kansas City', 'Atlanta', 'Long Beach', 'Colorado Springs',
+      'Raleigh', 'Miami', 'Virginia Beach', 'Omaha', 'Oakland', 'Minneapolis',
+      'Tulsa', 'Arlington', 'Tampa', 'New Orleans', 'Wichita', 'Cleveland',
+      'Bakersfield', 'Aurora', 'Anaheim', 'Honolulu', 'Santa Ana', 'Riverside',
+      'Corpus Christi', 'Lexington', 'Stockton', 'St. Louis', 'Saint Paul',
+      'Henderson', 'Pittsburgh', 'Cincinnati', 'Anchorage', 'Greensboro',
+      'Plano', 'Newark', 'Lincoln', 'Orlando', 'Irvine', 'Toledo', 'Jersey City',
+      'Chula Vista', 'Durham', 'Fort Wayne', 'St. Petersburg', 'Laredo',
+      'Buffalo', 'Madison', 'Lubbock', 'Chandler', 'Scottsdale', 'Reno',
+      'Glendale', 'Gilbert', 'Winston-Salem', 'North Las Vegas', 'Norfolk',
+      'Chesapeake', 'Garland', 'Irving', 'Hialeah', 'Fremont', 'Boise',
+      'Richmond', 'Baton Rouge', 'Des Moines', 'Spokane', 'Modesto', 'Fayetteville',
+      'Tacoma', 'Oxnard', 'Fontana', 'Montgomery', 'Moreno Valley',
+      'Shreveport', 'Yonkers', 'Akron', 'Huntington Beach', 'Little Rock',
+      'Augusta', 'Amarillo', 'Mobile', 'Grand Rapids', 'Salt Lake City',
+      'Tallahassee', 'Huntsville', 'Grand Prairie', 'Knoxville', 'Worcester',
+      'Newport News', 'Brownsville', 'Overland Park', 'Santa Clarita', 'Providence',
+      'Garden Grove', 'Chattanooga', 'Oceanside', 'Jackson', 'Fort Lauderdale',
+      'Santa Rosa', 'Port St. Lucie', 'Ontario', 'Vancouver', 'Tempe', 'Springfield',
+      'Lancaster', 'Eugene', 'Pembroke Pines', 'Salem', 'Cape Coral', 'Peoria',
+      'Sioux Falls', 'Elk Grove', 'Rockford', 'Palmdale', 'Corona',
+      'Salinas', 'Pomona', 'Pasadena', 'Joliet', 'Paterson',
+      'Torrance', 'Syracuse', 'Bridgeport', 'Hayward', 'Fort Collins', 'Escondido',
+      'Lakewood', 'Naperville', 'Dayton', 'Hollywood', 'Sunnyvale', 'Alexandria',
+      'Mesquite', 'Hampton', 'Orange', 'Savannah', 'Cary', 'Fullerton',
+      'Warren', 'Clarksville', 'McKinney', 'McAllen', 'New Haven', 'Sterling Heights',
+      'West Valley City', 'Columbia', 'Killeen', 'Topeka', 'Thousand Oaks',
+      'Cedar Rapids', 'Olathe', 'Elizabeth', 'Waco', 'Hartford', 'Visalia',
+      'Gainesville', 'Simi Valley', 'Stamford', 'Bellevue', 'Concord', 'Miramar',
+      'Coral Springs', 'Lafayette', 'Charleston', 'Carrollton', 'Roseville',
+      'Thornton', 'Beaumont', 'Allentown', 'Surprise', 'Evansville', 'Abilene',
+      'Frisco', 'Independence', 'Santa Clara', 'Vallejo', 'Victorville',
+      'Athens', 'Lansing', 'Ann Arbor', 'El Monte', 'Denton', 'Berkeley',
+      'Provo', 'Downey', 'Midland', 'Norman', 'Waterbury', 'Costa Mesa', 'Inglewood',
+      'Manchester', 'Murfreesboro', 'Elgin', 'Clearwater', 'Miami Gardens',
+      'Rochester', 'Pueblo', 'Lowell', 'Wilmington', 'Arvada', 'San Buenaventura',
+      'Westminster', 'West Covina', 'Gresham', 'Fargo', 'Norwalk', 'Carlsbad',
+      'Fairfield', 'Cambridge', 'Wichita Falls', 'High Point', 'Billings',
+      'Green Bay', 'Tyler', 'San Mateo', 'Lewisville', 'Davie', 'League City',
+      'Rialto', 'Yakima', 'Broken Arrow', 'Round Rock', 'West Palm Beach',
+      'Burbank', 'Arden-Arcade', 'Allen', 'El Cajon', 'Las Cruces',
+      'Renton', 'Daly City', 'Sparks', 'Nampa', 'South Bend',
+      'Dearborn', 'Livonia', 'Tuscaloosa', 'Vacaville', 'Brockton',
+      'Roswell', 'Beaverton', 'Quincy', 'Lawrence', 'Clovis',
+      'Macon', 'Santa Maria', 'Kenosha', 'Bellingham', 'Sandy Springs',
+      'Gary', 'Bend', 'Meridian', 'Mission Viejo', 'Longmont',
+      'Farmington Hills', 'Boulder', 'San Luis Obispo', 'Schaumburg', 'Kingsport',
+      'Lynn', 'Redding', 'New Bedford', 'Chico', 'Camden', 'South Gate',
+      'San Angelo', 'Portsmouth', 'Temecula', 'Carmel', 'Bloomington',
+      'Warner Robins', 'Somerville', 'Janesville', 'Champaign',
+      'Alhambra', 'Chino', 'Davis', 'Redwood City', 'Nashua', 'Bethlehem',
+      'Lakeland', 'Reading', 'Antioch', 'Hawthorne',
+      'Whittier', 'Greeley', 'Citrus Heights', 'Petaluma',
+      'Flint', 'Waukegan', 'Merced',
+      'Kalamazoo', 'Cranston', 'Parma',
+      'Gilroy', 'Pasco', 'Pompano Beach',
+      'St. Clair Shores', 'Rockville', 'Trenton', 'Compton', 'Bossier City',
+      'Dearborn Heights', 'Lawton', 'Vineland', 'Suffolk', 'Waukesha',
+      'Mount Pleasant', 'Berwyn', 'Bowie', 'Evanston', 'Cypress',
+      'Coeur d\'Alene', 'Seaside', 'Hillsboro', 'North Lauderdale', 'Mishawaka',
+      'Silver Spring', 'Dale City', 'Sherman', 'Kendall', 'Orem',
+      'Boca Raton', 'Lynnwood', 'Southfield', 'New Britain',
+      'Chino Hills', 'Redlands',
+      'Decatur', 'Hammond', 'Haverhill', 'Plantation', 'San Leandro', 'Rocky Mount',
+      'Wheaton', 'Glen Burnie', 'Fort Smith', 'Bayonne', 'Kokomo',
+      'Lees Summit', 'Harlingen', 'Dubuque', 'Casper', 'Scranton', 'Pine Hills',
+      'Livermore', 'Plymouth', 'Riverton', 'Kirkland', 'Owensboro',
+      'Johns Creek', 'Beloit',
+      'Union City', 'Annandale',
+      'Ellicott City', 'Apple Valley', 'Largo', 'Wyoming', 'Redmond', 'Yuba City',
+      'Baldwin Park', 'West Des Moines', 'Greenwood', 'Gastonia', 'San Ramon',
+      'Cheyenne', 'New Braunfels', 'Medford', 'Port Arthur',
+      'St. Charles', 'Rancho Cordova', 'St. Cloud', 'Carson',
+      'Yorba Linda', 'Palm Bay', 'Cupertino', 'Cathedral City',
+      'Bentonville', 'Albany', 'Sammamish', 'Pleasanton', 'Benton Harbor',
+      'Florence', 'Fall River', 'Cicero', 'Palm Coast', 'Avondale',
+      'Glenview', 'Marietta', 'Homestead', 'Troy', 'Farmers Branch',
+      'Spring Hill', 'Casas Adobes', 'Temple', 'Keller', 'Grand Junction',
+      'West Allis', 'Waltham', 'Pawtucket', 'Pico Rivera',
+      'West Sacramento', 'North Charleston', 'Bismarck', 'Blaine',
+      'Longview', 'Caldwell', 'Cedar Park', 'Corvallis',
+      'The Woodlands', 'League City',
+      'Buena Park', 'Mission', 'Prescott Valley', 'Terre Haute',
+      'Hoboken', 'Palm Beach Gardens',
+      'Brooklyn Park', 'Richland',
+      'Fishers',
+      'Manteca', 'Bolingbrook', 'Lehi', 'Beavercreek', 'El Dorado Hills',
+      'Pearland', 'Lynwood', 'Mountain View',
+      'Norwalk', 'Rancho Cucamonga', 'St. Peters', 'Milpitas',
+      'Franklin', 'Kennewick', 'Biloxi', 'Newton',
+      'San Bruno', 'Greenville', 'Wausau', 'Westfield',
+      'Hendersonville', 'Perris', 'Rocklin', 'Goodyear', 'Doral',
+      'Brentwood',
+      'Watsonville', 'Palm Desert', 'West Haven',
+      'Lawrence', 'Edinburg',
+      'Minnetonka',
+      'Flagstaff', 'Euless', 'North Miami', 'Eden Prairie', 'Grand Forks',
+      'Sandusky', 'Fond du Lac', 'Colonial Heights', 'Everett',
+      'East Lansing', 'Bristol',
+      'Hazleton', 'East Providence',
+      'Manhattan',
+      'Miami Beach', 'Coon Rapids',
+      'Lakeville', 'Bowling Green',
+      'Rapid City',
+      'Buffalo Grove',
+      'Winter Haven', 'Middletown',
+      'Weymouth',
+      'Grand Island',
+      'Carbondale',
+      'Cleveland Heights',
       'Stillwater'
     ];
 
@@ -1301,14 +1580,14 @@ class PolymarketService {
 
     // Check for state names as fallback
     const stateNames = [
-      'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 
-      'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 
-      'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 
-      'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi', 
-      'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey', 
-      'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 
-      'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 
-      'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 
+      'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
+      'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho',
+      'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana',
+      'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi',
+      'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey',
+      'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
+      'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina',
+      'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia',
       'Washington', 'West Virginia', 'Wisconsin', 'Wyoming'
     ];
 
@@ -1333,7 +1612,7 @@ class PolymarketService {
       event_type: null,
       venue: null
     };
-    
+
     // Check tags first (more reliable) - handle both string and object tags
     const tagLabels = (tags || []).map(t => {
       if (typeof t === 'string') return t.toLowerCase();
@@ -1344,7 +1623,7 @@ class PolymarketService {
     // Map common tag labels to event types
     const tagToEventType = {
       'nfl': 'NFL',
-      'nba': 'NBA', 
+      'nba': 'NBA',
       'mlb': 'MLB',
       'nhl': 'NHL',
       'golf': 'Golf',
@@ -1358,7 +1637,7 @@ class PolymarketService {
       'weather': 'Weather',
       'sports': 'Sports'
     };
-    
+
     for (const [tag, eventType] of Object.entries(tagToEventType)) {
       if (tagLabels.includes(tag)) {
         metadata.event_type = eventType;
@@ -1490,10 +1769,10 @@ class PolymarketService {
     } else if (/golf|pga/i.test(marketTitle)) {
       metadata.event_type = 'Golf';
     } else if (/(tennis|wimbledon|\bopen\b)/i.test(marketTitle) &&
-               /(tournament|championship|atp|wta|grand slam|us open|french open|wimbledon|australian open)/i.test(marketTitle)) {
+      /(tournament|championship|atp|wta|grand slam|us open|french open|wimbledon|australian open)/i.test(marketTitle)) {
       metadata.event_type = 'Tennis';
     } else if (/(soccer|football)/i.test(marketTitle) &&
-               !(marketTitle.toLowerCase().includes('american football'))) {
+      !(marketTitle.toLowerCase().includes('american football'))) {
       metadata.event_type = 'Soccer';
     }
 
@@ -1520,20 +1799,20 @@ class PolymarketService {
     const weatherImpactFactors = {
       outdoor: (title.includes('outdoor') || title.includes('marathon')) ? 2 : 0,
       wind: (
-        title.includes('wind') || 
-        title.includes('sail') || 
+        title.includes('wind') ||
+        title.includes('sail') ||
         (windSpeed && windSpeed > 15)
       ) ? 2 : 0,
       precipitation: (
-        title.includes('rain') || 
-        title.includes('snow') || 
+        title.includes('rain') ||
+        title.includes('snow') ||
         (precipChance && precipChance > 30) ||
         currentCondition.includes('rain') ||
         currentCondition.includes('snow')
       ) ? 2 : 0,
       temperature: (
-        title.includes('temperature') || 
-        title.includes('cold') || 
+        title.includes('temperature') ||
+        title.includes('cold') ||
         title.includes('heat') ||
         (currentTemp && (currentTemp < 45 || currentTemp > 85))
       ) ? 1.5 : 0,
@@ -1577,12 +1856,12 @@ class PolymarketService {
   filterByWeatherTheme(markets, theme) {
     const th = (theme || 'all').toLowerCase();
     if (th === 'all') return markets;
-    const sportKeywords = ['nfl','nba','mlb','soccer','tennis','golf','cricket','rugby','marathon','race'];
-    const outdoorKeywords = ['marathon','race','festival','concert','outdoor'];
-    const aviationKeywords = ['flight','airport','delay','storm','airline'];
-    const energyKeywords = ['grid','power','electricity','oil','gas','energy','utility'];
-    const agricultureKeywords = ['harvest','crop','yield','agriculture','wheat','corn','soy'];
-    const weatherKeywords = ['weather','rain','snow','wind','temperature','heat','cold','humidity','storm'];
+    const sportKeywords = ['nfl', 'nba', 'mlb', 'soccer', 'tennis', 'golf', 'cricket', 'rugby', 'marathon', 'race'];
+    const outdoorKeywords = ['marathon', 'race', 'festival', 'concert', 'outdoor'];
+    const aviationKeywords = ['flight', 'airport', 'delay', 'storm', 'airline'];
+    const energyKeywords = ['grid', 'power', 'electricity', 'oil', 'gas', 'energy', 'utility'];
+    const agricultureKeywords = ['harvest', 'crop', 'yield', 'agriculture', 'wheat', 'corn', 'soy'];
+    const weatherKeywords = ['weather', 'rain', 'snow', 'wind', 'temperature', 'heat', 'cold', 'humidity', 'storm'];
     const matchAny = (text, words) => words.some(w => text.includes(w));
     return (markets || []).filter(m => {
       const title = (m.title || m.question || '').toLowerCase();
@@ -1608,7 +1887,7 @@ class PolymarketService {
     try {
       // Extract token IDs - market data provides clobTokenIds as JSON string or array
       let tokenIds = marketData?.clobTokenIds;
-      
+
       // Parse if it's a string
       if (typeof tokenIds === 'string') {
         try {
@@ -1618,7 +1897,7 @@ class PolymarketService {
           return this.enrichMarketWithAvailableData(marketData);
         }
       }
-      
+
       if (!tokenIds || !Array.isArray(tokenIds) || tokenIds.length === 0) {
         console.debug('No clobTokenIds available for market:', marketData?.id, 'using fallback');
         return this.enrichMarketWithAvailableData(marketData);
@@ -1631,7 +1910,7 @@ class PolymarketService {
         console.debug('Token ID is empty for market:', marketData?.id);
         return this.enrichMarketWithAvailableData(marketData);
       }
-      
+
       let orderBook;
       try {
         const orderBookResponse = await axios.get(`${this.clobBaseURL}/book`, {
@@ -1700,7 +1979,7 @@ class PolymarketService {
           vol1yr: parseFloat(marketData.volume1yr || 0),
           volumeTrend, // % change from weekly average
           volumeTrendDirection: volumeTrend > 10 ? 'increasing' :
-                                volumeTrend < -10 ? 'decreasing' : 'stable'
+            volumeTrend < -10 ? 'decreasing' : 'stable'
         },
         marketEfficiency: {
           efficiencyRatio,
@@ -1722,77 +2001,77 @@ class PolymarketService {
     * Uses available market fields to calculate similar metrics
     * Prefers outcomePrices from /events endpoint
     */
-   enrichMarketWithAvailableData(marketData) {
-      // Use outcomePrices if available (from /events endpoint - more reliable)
-      let bestBid = null;
-      let bestAsk = null;
-      let outcomePrices = marketData.outcomePrices;
-      
-      // Parse if outcomePrices is a JSON string
-      if (typeof outcomePrices === 'string') {
-        try {
-          outcomePrices = JSON.parse(outcomePrices);
-        } catch (e) {
-          outcomePrices = null;
-        }
+  enrichMarketWithAvailableData(marketData) {
+    // Use outcomePrices if available (from /events endpoint - more reliable)
+    let bestBid = null;
+    let bestAsk = null;
+    let outcomePrices = marketData.outcomePrices;
+
+    // Parse if outcomePrices is a JSON string
+    if (typeof outcomePrices === 'string') {
+      try {
+        outcomePrices = JSON.parse(outcomePrices);
+      } catch (e) {
+        outcomePrices = null;
       }
-      
-      if (outcomePrices && Array.isArray(outcomePrices) && outcomePrices.length >= 2) {
-        // outcomePrices[0] = YES outcome, outcomePrices[1] = NO outcome
-        const parsed0 = parseFloat(outcomePrices[0]);
-        const parsed1 = parseFloat(outcomePrices[1]);
-        if (!isNaN(parsed0) && parsed0 > 0) bestAsk = parsed0;
-        if (!isNaN(parsed1) && parsed1 > 0) bestBid = parsed1;
+    }
+
+    if (outcomePrices && Array.isArray(outcomePrices) && outcomePrices.length >= 2) {
+      // outcomePrices[0] = YES outcome, outcomePrices[1] = NO outcome
+      const parsed0 = parseFloat(outcomePrices[0]);
+      const parsed1 = parseFloat(outcomePrices[1]);
+      if (!isNaN(parsed0) && parsed0 > 0) bestAsk = parsed0;
+      if (!isNaN(parsed1) && parsed1 > 0) bestBid = parsed1;
+    }
+
+    // Fallback to bestBid/bestAsk fields if available and haven't been set
+    if (bestBid === null) {
+      const parsedBid = parseFloat(marketData.bestBid);
+      if (!isNaN(parsedBid) && parsedBid > 0) bestBid = parsedBid;
+    }
+    if (bestAsk === null) {
+      const parsedAsk = parseFloat(marketData.bestAsk);
+      if (!isNaN(parsedAsk) && parsedAsk > 0) bestAsk = parsedAsk;
+    }
+
+    // Try price/volume fields common in some APIs
+    if (bestBid === null && marketData.price !== undefined) {
+      const parsedPrice = parseFloat(marketData.price);
+      if (!isNaN(parsedPrice) && parsedPrice > 0) bestBid = parsedPrice;
+    }
+    if (bestAsk === null && marketData.price !== undefined) {
+      const parsedPrice = parseFloat(marketData.price);
+      if (!isNaN(parsedPrice) && parsedPrice > 0) bestAsk = parsedPrice;
+    }
+
+    // If still no prices, try lastTradePrice
+    if (bestBid === null || bestAsk === null) {
+      const lastTradePrice = parseFloat(marketData.lastTradePrice || 0);
+      if (!isNaN(lastTradePrice) && lastTradePrice > 0) {
+        if (bestAsk === null) bestAsk = lastTradePrice;
+        if (bestBid === null) bestBid = Math.max(0.001, lastTradePrice - 0.01);
       }
-      
-      // Fallback to bestBid/bestAsk fields if available and haven't been set
-      if (bestBid === null) {
-        const parsedBid = parseFloat(marketData.bestBid);
-        if (!isNaN(parsedBid) && parsedBid > 0) bestBid = parsedBid;
-      }
-      if (bestAsk === null) {
-        const parsedAsk = parseFloat(marketData.bestAsk);
-        if (!isNaN(parsedAsk) && parsedAsk > 0) bestAsk = parsedAsk;
-      }
-      
-      // Try price/volume fields common in some APIs
-      if (bestBid === null && marketData.price !== undefined) {
-        const parsedPrice = parseFloat(marketData.price);
-        if (!isNaN(parsedPrice) && parsedPrice > 0) bestBid = parsedPrice;
-      }
-      if (bestAsk === null && marketData.price !== undefined) {
-        const parsedPrice = parseFloat(marketData.price);
-        if (!isNaN(parsedPrice) && parsedPrice > 0) bestAsk = parsedPrice;
-      }
-      
-      // If still no prices, try lastTradePrice
-      if (bestBid === null || bestAsk === null) {
-        const lastTradePrice = parseFloat(marketData.lastTradePrice || 0);
-        if (!isNaN(lastTradePrice) && lastTradePrice > 0) {
-          if (bestAsk === null) bestAsk = lastTradePrice;
-          if (bestBid === null) bestBid = Math.max(0.001, lastTradePrice - 0.01);
-        }
-      }
-      
-      // Final safety: use 0.5 (50/50 odds) if no prices available at all
-      if (bestBid === null) bestBid = 0.5;
-      if (bestAsk === null) bestAsk = 0.5;
-      
-      // Debug log for problematic markets
-      if (bestBid === 0.5 && bestAsk === 0.5) {
-        console.debug(`Market ${marketData.id} using default 50/50 odds. Available fields:`, {
-          outcomePrices: marketData.outcomePrices,
-          bestBid: marketData.bestBid,
-          bestAsk: marketData.bestAsk,
-          price: marketData.price,
-          lastTradePrice: marketData.lastTradePrice
-        });
-      }
-     
-     // Calculate spread from available data
-     const spread = parseFloat(marketData.spread || 0);
-     const midPrice = bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0.5;
-     const spreadPercent = (spread > 0 && midPrice > 0) ? (spread / midPrice) * 100 : 0;
+    }
+
+    // Final safety: use 0.5 (50/50 odds) if no prices available at all
+    if (bestBid === null) bestBid = 0.5;
+    if (bestAsk === null) bestAsk = 0.5;
+
+    // Debug log for problematic markets
+    if (bestBid === 0.5 && bestAsk === 0.5) {
+      console.debug(`Market ${marketData.id} using default 50/50 odds. Available fields:`, {
+        outcomePrices: marketData.outcomePrices,
+        bestBid: marketData.bestBid,
+        bestAsk: marketData.bestAsk,
+        price: marketData.price,
+        lastTradePrice: marketData.lastTradePrice
+      });
+    }
+
+    // Calculate spread from available data
+    const spread = parseFloat(marketData.spread || 0);
+    const midPrice = bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0.5;
+    const spreadPercent = (spread > 0 && midPrice > 0) ? (spread / midPrice) * 100 : 0;
 
     // Volume trend analysis using available fields
     const vol24h = parseFloat(marketData.volume24hr || marketData.volume24h || 0);
@@ -1818,7 +2097,7 @@ class PolymarketService {
         vol1yr: parseFloat(marketData.volume1yr || 0),
         volumeTrend,
         volumeTrendDirection: volumeTrend > 10 ? 'increasing' :
-                             volumeTrend < -10 ? 'decreasing' : 'stable'
+          volumeTrend < -10 ? 'decreasing' : 'stable'
       },
       marketEfficiency: {
         efficiencyRatio: 0, // Can't calculate without order book
@@ -1896,7 +2175,7 @@ class PolymarketService {
     // Rate market depth
     let depthRating, liquidityRating;
     const totalDepth = orderBook.bids.reduce((sum, b) => sum + b.size, 0) +
-                      orderBook.asks.reduce((sum, a) => sum + a.size, 0);
+      orderBook.asks.reduce((sum, a) => sum + a.size, 0);
 
     if (totalDepth > 1000) {
       depthRating = 'deep';

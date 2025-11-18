@@ -67,6 +67,7 @@ export class MarketTypeDetector {
   /**
    * SIGNAL 1: Analyze resolution date
    * Score: 0-5 (5 = definitely futures)
+   * UPDATED: More lenient - only flag markets >60 days out as futures based on time alone
    */
   static analyzeResolutionDate(market) {
     const resolutionDate = market.resolutionDate || market.expiresAt || market.endDate;
@@ -77,12 +78,12 @@ export class MarketTypeDetector {
     
     const daysUntilResolution = (new Date(resolutionDate) - new Date()) / (1000 * 60 * 60 * 24);
     
-    if (daysUntilResolution > 90) {
+    if (daysUntilResolution > 120) {
       return { signal: 'resolution_date', score: 5, detail: `${Math.round(daysUntilResolution)} days away - definitely futures` };
-    } else if (daysUntilResolution > 30) {
+    } else if (daysUntilResolution > 60) {
       return { signal: 'resolution_date', score: 3, detail: `${Math.round(daysUntilResolution)} days away - likely futures` };
-    } else if (daysUntilResolution > 7) {
-      return { signal: 'resolution_date', score: 1, detail: `${Math.round(daysUntilResolution)} days away - uncertain` };
+    } else if (daysUntilResolution > 30) {
+      return { signal: 'resolution_date', score: 1, detail: `${Math.round(daysUntilResolution)} days away - possibly futures` };
     } else {
       return { signal: 'resolution_date', score: 0, detail: `${Math.round(daysUntilResolution)} days away - single event` };
     }
@@ -101,14 +102,16 @@ export class MarketTypeDetector {
     const patterns = [];
     
     // Generic futures patterns (not sport-specific)
+    // UPDATED: More specific patterns to avoid false positives on single games
     const futuresPatterns = [
-      { pattern: /will.*win (the|a) (championship|title|trophy|cup|league)/i, points: 3, name: 'championship_language' },
-      { pattern: /season winner|season champion/i, points: 3, name: 'season_winner' },
-      { pattern: /\b(202[5-9]|203[0-9])\b.*season/i, points: 2, name: 'future_season' },
-      { pattern: /make (the )?playoffs/i, points: 2, name: 'playoff_qualification' },
-      { pattern: /finish (first|top|1st|2nd|3rd)/i, points: 2, name: 'season_standings' },
+      { pattern: /will.*win (the|a) (championship|super bowl|world series|stanley cup|nba finals)/i, points: 3, name: 'championship_language' },
+      { pattern: /season winner|season champion|division winner/i, points: 3, name: 'season_winner' },
+      { pattern: /\b(202[5-9]|203[0-9])\b.*(season|championship)/i, points: 3, name: 'future_season' },
+      { pattern: /make (the )?playoffs/i, points: 3, name: 'playoff_qualification' },
+      { pattern: /finish (first|top|1st) in (the )?(division|conference|league)/i, points: 3, name: 'season_standings' },
       { pattern: /by (end of|conclusion of) (season|year)/i, points: 2, name: 'season_end' },
-      { pattern: /\b(over|under) \d+(\.\d+)? (wins|points|goals) (this|next) season/i, points: 2, name: 'season_totals' },
+      { pattern: /\b(over|under) \d+(\.\d+)? (wins|points|goals) (this|next|the) season/i, points: 3, name: 'season_totals' },
+      { pattern: /win.*\b(nfc|afc|eastern|western) (east|west|north|south|conference)\b/i, points: 3, name: 'division_winner' },
     ];
     
     for (const { pattern, points, name } of futuresPatterns) {

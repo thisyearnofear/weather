@@ -12,10 +12,10 @@ import EnhancedOrderForm from './components/EnhancedOrderForm';
 import ValidationStatusBar from './components/ValidationStatusBar';
 
 // Performance optimized validation hooks
-import { 
-  useLocationValidation, 
+import {
+  useLocationValidation,
   useWeatherValidation,
-  usePerformantValidation 
+  usePerformantValidation
 } from './components/usePerformantValidation';
 
 // Keep legacy components as fallback
@@ -38,15 +38,16 @@ export default function AIPage() {
   const [selectedMarket, setSelectedMarket] = useState(null);
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(false);
   const [marketFilters, setMarketFilters] = useState({
-    eventType: 'Sports',
+    eventType: 'Soccer', // Default to Soccer since we know it works
     confidence: 'MEDIUM', // Default to HIGH+MEDIUM
     bestEdgesOnly: true // Toggle for best edges
   });
   const [includeFutures, setIncludeFutures] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const [maxDaysToResolution, setMaxDaysToResolution] = useState(14);
-  const [minVolume, setMinVolume] = useState(50000);
+  const [maxDaysToResolution, setMaxDaysToResolution] = useState(7); // Default to 7 days
+  const [minVolume, setMinVolume] = useState(10000); // Default to $10k for more markets
   const [showMethodology, setShowMethodology] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Scanning prediction markets...');
 
   // Analysis state
   const [analysis, setAnalysis] = useState(null);
@@ -62,8 +63,12 @@ export default function AIPage() {
     return hour >= 19 || hour <= 6;
   });
 
-  // Enhanced validation integration
-  const [useEnhancedComponents, setUseEnhancedComponents] = useState(true);
+  // Market counts for each sport (for UI dropdown)
+  const [marketCounts, setMarketCounts] = useState(null);
+  const [isLoadingCounts, setIsLoadingCounts] = useState(false);
+
+  // Enhanced validation integration - DISABLED due to validation bugs
+  const [useEnhancedComponents, setUseEnhancedComponents] = useState(false);
 
   // Performance-optimized validations
   // For /ai: Validate against event location (extracted from market), not user location
@@ -115,14 +120,16 @@ export default function AIPage() {
   const tradingValidation = {
     aggregateValidation: {
       valid: isConnected && selectedMarket,
-      errors: !isConnected ? ['Wallet not connected'] : 
-              !selectedMarket ? ['No market selected'] : [],
+      errors: !isConnected ? ['Wallet not connected'] :
+        !selectedMarket ? ['No market selected'] : [],
       warnings: [],
       hasData: true
     }
   };
 
   // Log validation status for debugging (not user-facing)
+  // DISABLED: Too verbose, spamming console
+  /*
   React.useEffect(() => {
     console.log('🔍 Validation Status:', {
       location: {
@@ -150,6 +157,7 @@ export default function AIPage() {
       marketsCount: markets?.length || 0
     });
   }, [locationValidation, weatherValidation, marketValidation, tradingValidation, isConnected, selectedMarket, markets?.length]);
+  */
 
   const [timeOfDay, setTimeOfDay] = useState(() => {
     const hour = new Date().getHours();
@@ -162,6 +170,25 @@ export default function AIPage() {
   useEffect(() => {
     loadWeather();
   }, []);
+
+  // Fetch market counts on mount (for dropdown)
+  useEffect(() => {
+    async function fetchMarketCounts() {
+      setIsLoadingCounts(true);
+      try {
+        const response = await fetch(`/api/markets/counts?minVolume=${minVolume}`);
+        const data = await response.json();
+        if (data.success) {
+          setMarketCounts(data.counts);
+        }
+      } catch (err) {
+        console.error('Failed to fetch market counts:', err);
+      } finally {
+        setIsLoadingCounts(false);
+      }
+    }
+    fetchMarketCounts();
+  }, [minVolume]);
 
   // Fetch markets when weather loads or filters change
   useEffect(() => {
@@ -247,7 +274,7 @@ export default function AIPage() {
       }
 
       const result = await response.json();
-      
+
       if (result.success) {
         if (Array.isArray(result.markets) && result.markets.length > 0) {
           setMarkets(result.markets);
@@ -259,14 +286,14 @@ export default function AIPage() {
             body: JSON.stringify({
               weatherData: null,
               location: null,
-              eventType: 'all',
+              eventType: 'Soccer', // Use Soccer instead of 'all' to avoid movies, Tesla, etc.
               confidence: 'all',
               limitCount: 24,
               excludeFutures: false,
               searchText: null,
               maxDaysToResolution: 60,
-              minVolume: Math.min(Number(minVolume || 50000), 10000),
-              theme: 'all'
+              minVolume: 10000, // Lower to $10k
+              theme: 'sports'
             })
           });
           const fb = await fallbackRes.json();
@@ -422,6 +449,13 @@ export default function AIPage() {
   const handleAnalyzeMarket = (market) => {
     console.log('🧠 Analyzing market:', market.title, market.marketID);
     setSelectedMarket(market);
+    // Auto-scroll to analysis section for better UX
+    setTimeout(() => {
+      document.getElementById('analysis-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, 100);
     analyzeMarket(market);
   };
 
@@ -443,12 +477,34 @@ export default function AIPage() {
     return currentHour >= 19 || currentHour <= 6;
   }, [weatherData?.location?.localtime]);
 
+  // Cycle through loading messages for better UX
+  useEffect(() => {
+    if (!isLoadingMarkets) return;
+
+    const messages = [
+      'Scanning prediction markets...',
+      'Analyzing market liquidity...',
+      'Detecting weather-sensitive events...',
+      'Computing edge scores...',
+      'Filtering by confidence levels...',
+      'Identifying trading opportunities...'
+    ];
+
+    let index = 0;
+    const interval = setInterval(() => {
+      index = (index + 1) % messages.length;
+      setLoadingMessage(messages[index]);
+    }, 1500); // Change message every 1.5 seconds
+
+    return () => clearInterval(interval);
+  }, [isLoadingMarkets]);
+
   // Set timeOfDay based on hour
   useEffect(() => {
     if (weatherData?.location?.localtime) {
       const localTime = weatherData.location.localtime;
       const currentHour = new Date(localTime).getHours();
-      
+
       if (currentHour >= 19 || currentHour <= 6) {
         setTimeOfDay('night');
       } else if (currentHour >= 6 && currentHour < 8) {
@@ -481,13 +537,13 @@ export default function AIPage() {
     <div className="min-h-screen relative">
       {/* 3D Scene Background - Ambient Quality for Performance */}
       <div className="fixed inset-0 z-0">
-        <Scene3D 
+        <Scene3D
           weatherData={weatherData}
           isLoading={isLoadingWeather}
           quality="ambient"
         />
       </div>
-      
+
       {/* Scrollable Content Container */}
       <div className="relative z-20 flex flex-col min-h-screen overflow-y-auto">
         {/* Header */}
@@ -533,439 +589,417 @@ export default function AIPage() {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-12 flex-1">
-        {/* Filter Controls - Simplified */}
-        <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 mb-6`}>
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-              <span className={`px-3 py-1 text-xs rounded-full border ${
-                nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
-              }`}>
-                Short-Horizon: ≤ {maxDaysToResolution}d
-              </span>
-              <span className={`px-3 py-1 text-xs rounded-full border ${
-                nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
-              }`}>
-                Confidence: {marketFilters.confidence === 'MEDIUM' ? 'High + Medium' : marketFilters.confidence}
-              </span>
-              <span className={`px-3 py-1 text-xs rounded-full border ${
-                (minVolume >= 100000)
+          {/* Filter Controls - Simplified */}
+          <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 mb-6`}>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <span className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                  }`}>
+                  Short-Horizon: ≤ {maxDaysToResolution}d
+                </span>
+                <span className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                  }`}>
+                  Confidence: {marketFilters.confidence === 'MEDIUM' ? 'High + Medium' : marketFilters.confidence}
+                </span>
+                <span className={`px-3 py-1 text-xs rounded-full border ${(minVolume >= 100000)
                   ? (nightStatus ? 'bg-green-600/30 border-green-400/40 text-green-200' : 'bg-green-200/60 border-green-400/50 text-green-900')
                   : (minVolume >= 50000)
-                  ? (nightStatus ? 'bg-orange-600/30 border-orange-400/40 text-orange-200' : 'bg-orange-200/60 border-orange-400/50 text-orange-900')
-                  : (nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black')
-              }`}>
-                Min Vol: ${(minVolume/1000).toFixed(0)}k+
-              </span>
-              <span className={`px-3 py-1 text-xs rounded-full border ${
-                nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
-              }`}>
-                Futures: {includeFutures ? 'On' : 'Off'}
-              </span>
-              <span className={`px-3 py-1 text-xs rounded-full border ${
-                nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
-              }`}>
-                Event: {marketFilters.eventType}
-              </span>
-            </div>
-            {/* Best Edges Only Toggle */}
-            <div className="flex items-center justify-between">
-              <label className={`${textColor} text-sm font-light`}>Best Edges Only</label>
-              <button
-                onClick={() => setMarketFilters(prev => ({ ...prev, bestEdgesOnly: !prev.bestEdgesOnly }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  marketFilters.bestEdgesOnly
+                    ? (nightStatus ? 'bg-orange-600/30 border-orange-400/40 text-orange-200' : 'bg-orange-200/60 border-orange-400/50 text-orange-900')
+                    : (nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black')
+                  }`}>
+                  Min Vol: ${(minVolume / 1000).toFixed(0)}k+
+                </span>
+                <span className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                  }`}>
+                  Futures: {includeFutures ? 'On' : 'Off'}
+                </span>
+                <span className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                  }`}>
+                  Event: {marketFilters.eventType}
+                </span>
+              </div>
+              {/* Best Edges Only Toggle */}
+              <div className="flex items-center justify-between">
+                <label className={`${textColor} text-sm font-light`}>Best Edges Only</label>
+                <button
+                  onClick={() => setMarketFilters(prev => ({ ...prev, bestEdgesOnly: !prev.bestEdgesOnly }))}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${marketFilters.bestEdgesOnly
                     ? (nightStatus ? 'bg-blue-600' : 'bg-blue-500')
                     : (nightStatus ? 'bg-slate-600' : 'bg-slate-400')
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    marketFilters.bestEdgesOnly ? 'translate-x-5' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
+                    }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${marketFilters.bestEdgesOnly ? 'translate-x-5' : 'translate-x-1'
+                      }`}
+                  />
+                </button>
+              </div>
 
-            {/* Include Futures Toggle */}
-            <div className="flex items-center justify-between">
-              <label className={`${textColor} text-sm font-light`}>Include Futures</label>
-              <button
-                onClick={() => setIncludeFutures(prev => !prev)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  includeFutures
+              {/* Include Futures Toggle */}
+              <div className="flex items-center justify-between">
+                <label className={`${textColor} text-sm font-light`}>Include Futures</label>
+                <button
+                  onClick={() => setIncludeFutures(prev => !prev)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${includeFutures
                     ? (nightStatus ? 'bg-blue-600' : 'bg-blue-500')
                     : (nightStatus ? 'bg-slate-600' : 'bg-slate-400')
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    includeFutures ? 'translate-x-5' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
+                    }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${includeFutures ? 'translate-x-5' : 'translate-x-1'
+                      }`}
+                  />
+                </button>
+              </div>
 
-            {/* Event Type Filter */}
-            <div>
-              <label className={`${textColor} text-xs opacity-60 block mb-2`}>Event Type</label>
-              <select
-                value={marketFilters.eventType}
-                onChange={(e) => setMarketFilters(prev => ({ ...prev, eventType: e.target.value }))}
-                className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${
-                 nightStatus
-                   ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400' 
-                   : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
-                 } focus:outline-none`}
-              >
-                <optgroup label="Fully Supported (with venue extraction)">
-                  <option value="all">All Supported Sports</option>
-                  <option value="NFL">🏈 NFL (US Football)</option>
-                  <option value="Soccer">⚽ Soccer (Premier League + International)</option>
-                </optgroup>
-                <optgroup label="Coming Soon">
-                  <option value="NBA" disabled>NBA (Basketball) — Soon</option>
-                  <option value="MLB" disabled>MLB (Baseball) — Soon</option>
-                  <option value="NHL" disabled>NHL (Ice Hockey) — Soon</option>
-                  <option value="Tennis" disabled>Tennis — Soon</option>
-                  <option value="Cricket" disabled>Cricket — Soon</option>
-                  <option value="F1" disabled>Formula 1 — Soon</option>
-                  <option value="Golf" disabled>Golf — Soon</option>
-                </optgroup>
-                <optgroup label="Non-Sports">
-                  <option value="Weather">Weather</option>
-                  <option value="Politics">Politics</option>
-                </optgroup>
-              </select>
-              <p className={`text-xs ${textColor} opacity-50 mt-2 italic`}>
-                Event Weather Analysis works best for sports with clear venue locations
-              </p>
-            </div>
-
-            {/* Search */}
-            <div>
-              <label className={`${textColor} text-xs opacity-60 block mb-2`}>Search Events</label>
-              <input
-                type="text"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder="e.g., Chiefs, Liverpool, Arrowhead Stadium"
-                className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${
-                  nightStatus
-                    ? 'bg-white/10 border-white/20 text-white placeholder-white/50 focus:ring-2 focus:ring-blue-400'
-                    : 'bg-black/10 border-black/20 text-black placeholder-black/50 focus:ring-2 focus:ring-blue-400'
-                } focus:outline-none`}
-              />
-            </div>
-
-            {/* Min Volume Filter */}
-            <div>
-              <label className={`${textColor} text-xs opacity-60 block mb-2`}>Minimum 24h Volume</label>
-              <select
-                value={String(minVolume)}
-                onChange={(e) => setMinVolume(parseInt(e.target.value))}
-                className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${
-                  nightStatus
+              {/* Event Type Filter */}
+              <div>
+                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Event Type</label>
+                <select
+                  value={marketFilters.eventType}
+                  onChange={(e) => setMarketFilters(prev => ({ ...prev, eventType: e.target.value }))}
+                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
                     ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400'
                     : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
-                } focus:outline-none`}
-              >
-                <option value="10000">$10k+</option>
-                <option value="50000">$50k+</option>
-                <option value="100000">$100k+</option>
-              </select>
-            </div>
-
-            {/* Confidence Filter */}
-            <div>
-              <label className={`${textColor} text-xs opacity-60 block mb-2`}>Confidence Level</label>
-              <select
-                value={marketFilters.confidence}
-                onChange={(e) => setMarketFilters(prev => ({ ...prev, confidence: e.target.value }))}
-                className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${
-                  nightStatus
-                     ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400' 
-                     : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
-                 } focus:outline-none`}
-              >
-                <option value="HIGH">High Confidence</option>
-                <option value="MEDIUM">High + Medium</option>
-                <option value="LOW">Low+</option>
-              </select>
-            </div>
-
-            {/* Max Days to Resolution */}
-            <div>
-              <label className={`${textColor} text-xs opacity-60 block mb-2`}>Max Days to Resolution</label>
-              <input
-                type="range"
-                min={3}
-                max={60}
-                step={1}
-                value={maxDaysToResolution}
-                onChange={(e) => setMaxDaysToResolution(parseInt(e.target.value))}
-                className="w-full"
-              />
-              <div className={`${textColor} text-xs opacity-70 mt-1`}>{maxDaysToResolution} days</div>
-              <div className="flex items-center gap-2 mt-2">
-                <button
-                  onClick={() => setMaxDaysToResolution(7)}
-                  className={`px-3 py-1 text-xs rounded-full border ${
-                    nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
-                  }`}
+                    } focus:outline-none`}
                 >
-                  7d
-                </button>
-                <button
-                  onClick={() => setMaxDaysToResolution(14)}
-                  className={`px-3 py-1 text-xs rounded-full border ${
-                    nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
-                  }`}
-                >
-                  14d
-                </button>
-                <button
-                  onClick={() => setMaxDaysToResolution(30)}
-                  className={`px-3 py-1 text-xs rounded-full border ${
-                    nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
-                  }`}
-                >
-                  30d
-                </button>
-              </div>
-            </div>
-
-            {/* Methodology Link */}
-            <button
-              onClick={() => setShowMethodology(!showMethodology)}
-              className={`w-full py-2 text-xs font-light rounded-lg transition-all opacity-70 hover:opacity-100 ${textColor}`}
-            >
-              {showMethodology ? '▼ Hide Methodology' : '▶ How We Score Edges'}
-            </button>
-          </div>
-        </div>
-
-        {/* Methodology - Expandable */}
-        {showMethodology && (
-          <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 mb-6`}>
-            <h3 className={`${textColor} text-sm font-light mb-4`}>Edge Scoring Methodology</h3>
-            <div className={`space-y-3 text-xs ${textColor} opacity-80 leading-relaxed`}>
-              <div>
-                <p className="font-light opacity-90 mb-1">Weather Impact Analysis</p>
-                <p className="opacity-70">AI analyzes how weather conditions (precipitation, wind, temperature, humidity) affect event outcomes based on historical patterns and participant adaptation.</p>
-              </div>
-              <div>
-                <p className="font-light opacity-90 mb-1">Odds Efficiency Detection</p>
-                <p className="opacity-70">Compares AI-assessed probability vs. current market odds to identify mispricings where weather factors aren't fully reflected.</p>
-              </div>
-              <div>
-                <p className="font-light opacity-90 mb-1">Confidence Scoring</p>
-                <p className="opacity-70">HIGH = Strong weather influence + clear odds misprice. MEDIUM = Moderate impact or uncertainty. LOW = Limited data or marginal edge.</p>
-              </div>
-              <div className="border-t border-current/20 pt-3 mt-3">
-                <p className="opacity-60">Data sources: WeatherAPI, Polymarket CLOB, Historical performance data. Updated every 5 minutes.</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className={`backdrop-blur-xl border rounded-3xl p-4 mb-6 ${
-            nightStatus
-              ? 'bg-red-500/20 border-red-500/30'
-              : 'bg-red-400/20 border-red-400/30'
-          }`}>
-            <p className={`${textColor} text-sm`}>{error}</p>
-            <button
-              onClick={loadWeather}
-              className={`mt-3 px-3 py-1 text-xs rounded transition-colors ${
-                nightStatus
-                  ? 'bg-red-500/30 hover:bg-red-500/50'
-                  : 'bg-red-400/30 hover:bg-red-400/50'
-              }`}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-6">
-           {/* Markets - Full Width */}
-           <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-[350px] overflow-y-auto`}>
-             {isLoadingMarkets ? (
-               <div className="flex justify-center py-12">
-                 <div className={`w-8 h-8 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor}`}></div>
-                 <p className={`${textColor} opacity-70 mt-3 text-sm`}>Finding markets...</p>
-               </div>
-             ) : markets && markets.length > 0 ? (
-               useEnhancedComponents ? (
-                 <ValidationAwareMarketSelector
-                   markets={markets}
-                   selectedMarket={selectedMarket}
-                   onSelectMarket={handleSelectMarket}
-                   onAnalyze={handleAnalyzeMarket}
-                   onQuickTrade={handleQuickTrade}
-                   validation={marketValidation}
-                   isNight={nightStatus}
-                   isLoading={isLoadingMarkets}
-                 />
-               ) : (
-                 <MarketSelector
-                   markets={markets}
-                   selectedMarket={selectedMarket}
-                   onSelectMarket={handleSelectMarket}
-                   onAnalyze={handleAnalyzeMarket}
-                   onQuickTrade={handleQuickTrade}
-                   isNight={nightStatus}
-                   isLoading={isLoadingMarkets}
-                 />
-               )
-             ) : (
-               <div className="text-center py-16">
-                 <div className="text-5xl mb-4">🌤️</div>
-                 <h3 className={`text-lg font-light ${textColor} mb-2`}>No Weather Edges Today</h3>
-                 <p className={`text-sm ${textColor} opacity-70 leading-relaxed max-w-md mx-auto`}>
-                   Weather conditions must change significantly for new mispricings to emerge. Check back when weather forecasts update or new events are added to the market.
-                 </p>
-                 <button
-                   onClick={loadWeather}
-                   className={`mt-6 px-4 py-2 text-xs font-light rounded-lg border transition-all ${
-                     nightStatus
-                       ? 'bg-blue-600/40 hover:bg-blue-600/60 border-blue-400/40 text-blue-100'
-                       : 'bg-blue-200/60 hover:bg-blue-300/70 border-blue-400/50 text-blue-900'
-                   }`}
-                 >
-                   Refresh Weather Data
-                 </button>
-               </div>
-             )}
-           </div>
-
-          {/* Analysis & Trading - Full Width Below */}
-          <div className="space-y-6">
-            {/* Analysis Display */}
-            {isLoadingAnalysis ? (
-              <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-8 flex justify-center`}>
-                <div className={`w-6 h-6 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor}`}></div>
-              </div>
-            ) : analysis ? (
-              <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-96 overflow-y-auto`}>
-                {useEnhancedComponents ? (
-                  <EnhancedAnalysisDisplay
-                    analysis={analysis}
-                    selectedMarket={selectedMarket}
-                    weatherData={weatherData}
-                    validation={weatherValidation}
-                    isNight={nightStatus}
-                    onTrade={() => setShowOrderForm(!showOrderForm)}
-                  />
-                ) : (
-                  <AnalysisDisplay
-                    analysis={analysis}
-                    selectedMarket={selectedMarket}
-                    isNight={nightStatus}
-                    onTrade={() => setShowOrderForm(!showOrderForm)}
-                  />
-                )}
-              </div>
-            ) : selectedMarket ? (
-              <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-8 text-center`}>
-                <p className={`${textColor} opacity-60 text-sm mb-4`}>
-                  Ready to analyze this market?
+                  <optgroup label="Fully Supported (with venue extraction)">
+                    <option value="all">All Supported Sports</option>
+                    <option value="Soccer">⚽ Soccer (Premier League + International)</option>
+                    <option value="NFL">🏈 NFL (US Football)</option>
+                    <option value="F1">🏎️ Formula 1</option>
+                  </optgroup>
+                  <optgroup label="Coming Soon">
+                    <option value="NBA" disabled>NBA (Basketball) — Soon</option>
+                    <option value="MLB" disabled>MLB (Baseball) — Soon</option>
+                    <option value="NHL" disabled>NHL (Ice Hockey) — Soon</option>
+                    <option value="Tennis" disabled>Tennis — Soon</option>
+                    <option value="Cricket" disabled>Cricket — Soon</option>
+                    <option value="Golf" disabled>Golf — Soon</option>
+                  </optgroup>
+                  <optgroup label="Non-Sports">
+                    <option value="Weather">Weather</option>
+                    <option value="Politics">Politics</option>
+                  </optgroup>
+                </select>
+                <p className={`text-xs ${textColor} opacity-50 mt-2 italic`}>
+                  Event Weather Analysis works best for sports with clear venue locations
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              </div>
+
+              {/* Search */}
+              <div>
+                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Search Events</label>
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="e.g., Chiefs, Liverpool, Arrowhead Stadium"
+                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
+                    ? 'bg-white/10 border-white/20 text-white placeholder-white/50 focus:ring-2 focus:ring-blue-400'
+                    : 'bg-black/10 border-black/20 text-black placeholder-black/50 focus:ring-2 focus:ring-blue-400'
+                    } focus:outline-none`}
+                />
+              </div>
+
+              {/* Min Volume Filter */}
+              <div>
+                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Minimum 24h Volume</label>
+                <select
+                  value={String(minVolume)}
+                  onChange={(e) => setMinVolume(parseInt(e.target.value))}
+                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
+                    ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400'
+                    : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
+                    } focus:outline-none`}
+                >
+                  <option value="10000">$10k+</option>
+                  <option value="50000">$50k+</option>
+                  <option value="100000">$100k+</option>
+                </select>
+              </div>
+
+              {/* Confidence Filter */}
+              <div>
+                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Confidence Level</label>
+                <select
+                  value={marketFilters.confidence}
+                  onChange={(e) => setMarketFilters(prev => ({ ...prev, confidence: e.target.value }))}
+                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
+                    ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400'
+                    : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
+                    } focus:outline-none`}
+                >
+                  <option value="HIGH">High Confidence</option>
+                  <option value="MEDIUM">High + Medium</option>
+                  <option value="LOW">Low+</option>
+                </select>
+              </div>
+
+              {/* Max Days to Resolution */}
+              <div>
+                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Max Days to Resolution</label>
+                <input
+                  type="range"
+                  min={3}
+                  max={60}
+                  step={1}
+                  value={maxDaysToResolution}
+                  onChange={(e) => setMaxDaysToResolution(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className={`${textColor} text-xs opacity-70 mt-1`}>{maxDaysToResolution} days</div>
+                <div className="flex items-center gap-2 mt-2">
                   <button
-                    onClick={() => analyzeMarket(selectedMarket, 'basic')}
-                    disabled={isLoadingAnalysis}
-                    className={`py-3 rounded-2xl font-medium text-sm transition-all duration-300 border-2 ${
-                      nightStatus
-                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 border-blue-300 text-white shadow-lg shadow-blue-500/50'
-                        : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 border-blue-400 text-white shadow-lg shadow-blue-500/30'
-                    } disabled:opacity-40 hover:scale-105`}
+                    onClick={() => setMaxDaysToResolution(7)}
+                    className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                      }`}
                   >
-                    Analyze (Standard)
+                    7d
                   </button>
                   <button
-                    onClick={() => analyzeMarketStream(selectedMarket)}
-                    disabled={isLoadingAnalysis}
-                    className={`py-3 rounded-2xl font-medium text-sm transition-all duration-300 border-2 ${
-                      nightStatus
-                        ? 'bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 border-green-300 text-white shadow-lg shadow-green-500/50'
-                        : 'bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 border-green-400 text-white shadow-lg shadow-green-500/30'
-                    } disabled:opacity-40 hover:scale-105`}
+                    onClick={() => setMaxDaysToResolution(14)}
+                    className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                      }`}
                   >
-                    Analyze (Enhanced)
+                    14d
+                  </button>
+                  <button
+                    onClick={() => setMaxDaysToResolution(30)}
+                    className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                      }`}
+                  >
+                    30d
                   </button>
                 </div>
-                <p className={`${textColor} opacity-40 text-xs`}>
-                  Standard: fast summary • Enhanced: web research and citations
-                </p>
               </div>
-            ) : (
-              <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-8 text-center`}>
-                <p className={`${textColor} opacity-60 text-sm mb-2`}>
-                  No market selected
-                </p>
-                <p className={`${textColor} opacity-40 text-xs`}>
-                  Choose a market from the list to begin
-                </p>
-              </div>
-            )}
 
-          {/* Order Form */}
-          {showOrderForm && selectedMarket && (
-            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-96 overflow-y-auto`}>
-              <h3 className={`text-lg font-light ${textColor} mb-4`}>
-                Place Order - {selectedMarket.title}
-              </h3>
-              {useEnhancedComponents ? (
-                <EnhancedOrderForm
-                  market={selectedMarket}
-                  walletAddress={address}
-                  isConnected={isConnected}
-                  onSuccess={handleOrderSuccess}
-                  isNight={nightStatus}
-                  chainId={chainId}
-                  weatherData={weatherData}
-                  validation={tradingValidation}
-                />
-              ) : (
-                <OrderForm
-                  market={selectedMarket}
-                  walletAddress={address}
-                  isConnected={isConnected}
-                  onSuccess={handleOrderSuccess}
-                  isNight={nightStatus}
-                  chainId={chainId}
-                />
-              )}
+              {/* Methodology Link */}
+              <button
+                onClick={() => setShowMethodology(!showMethodology)}
+                className={`w-full py-2 text-xs font-light rounded-lg transition-all opacity-70 hover:opacity-100 ${textColor}`}
+              >
+                {showMethodology ? '▼ Hide Methodology' : '▶ How We Score Edges'}
+              </button>
+            </div>
+          </div>
+
+          {/* Methodology - Expandable */}
+          {showMethodology && (
+            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 mb-6`}>
+              <h3 className={`${textColor} text-sm font-light mb-4`}>Edge Scoring Methodology</h3>
+              <div className={`space-y-3 text-xs ${textColor} opacity-80 leading-relaxed`}>
+                <div>
+                  <p className="font-light opacity-90 mb-1">Weather Impact Analysis</p>
+                  <p className="opacity-70">AI analyzes how weather conditions (precipitation, wind, temperature, humidity) affect event outcomes based on historical patterns and participant adaptation.</p>
+                </div>
+                <div>
+                  <p className="font-light opacity-90 mb-1">Odds Efficiency Detection</p>
+                  <p className="opacity-70">Compares AI-assessed probability vs. current market odds to identify mispricings where weather factors aren't fully reflected.</p>
+                </div>
+                <div>
+                  <p className="font-light opacity-90 mb-1">Confidence Scoring</p>
+                  <p className="opacity-70">HIGH = Strong weather influence + clear odds misprice. MEDIUM = Moderate impact or uncertainty. LOW = Limited data or marginal edge.</p>
+                </div>
+                <div className="border-t border-current/20 pt-3 mt-3">
+                  <p className="opacity-60">Data sources: WeatherAPI, Polymarket CLOB, Historical performance data. Updated every 5 minutes.</p>
+                </div>
+              </div>
             </div>
           )}
 
-            {/* Order Success */}
-            {orderResult?.success && (
-              <div className={`backdrop-blur-xl border rounded-3xl p-4 ${
-                nightStatus 
-                  ? 'bg-green-500/20 border-green-500/30' 
-                  : 'bg-green-400/20 border-green-400/30'
+          {error && (
+            <div className={`backdrop-blur-xl border rounded-3xl p-4 mb-6 ${nightStatus
+              ? 'bg-red-500/20 border-red-500/30'
+              : 'bg-red-400/20 border-red-400/30'
               }`}>
-                <p className={`text-sm ${textColor}`}>
-                  Order submitted successfully!
-                </p>
-                {orderResult.orderID && String(orderResult.orderID).startsWith('0x') && (
-                  <a
-                    href={`https://bscscan.com/tx/${orderResult.orderID}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`${textColor} opacity-70 text-xs underline`}
+              <p className={`${textColor} text-sm`}>{error}</p>
+              <button
+                onClick={loadWeather}
+                className={`mt-3 px-3 py-1 text-xs rounded transition-colors ${nightStatus
+                  ? 'bg-red-500/30 hover:bg-red-500/50'
+                  : 'bg-red-400/30 hover:bg-red-400/50'
+                  }`}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-6">
+            {/* Markets - Full Width */}
+            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-[350px] overflow-y-auto`}>
+              {isLoadingMarkets ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className={`w-8 h-8 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor} mb-4`}></div>
+                  <p className={`${textColor} opacity-70 text-sm font-light animate-pulse`}>{loadingMessage}</p>
+                </div>
+              ) : markets && markets.length > 0 ? (
+                useEnhancedComponents ? (
+                  <ValidationAwareMarketSelector
+                    markets={markets}
+                    selectedMarket={selectedMarket}
+                    onSelectMarket={handleSelectMarket}
+                    onAnalyze={handleAnalyzeMarket}
+                    onQuickTrade={handleQuickTrade}
+                    validation={marketValidation}
+                    isNight={nightStatus}
+                    isLoading={isLoadingMarkets}
+                  />
+                ) : (
+                  <MarketSelector
+                    markets={markets}
+                    selectedMarket={selectedMarket}
+                    onSelectMarket={handleSelectMarket}
+                    onAnalyze={handleAnalyzeMarket}
+                    onQuickTrade={handleQuickTrade}
+                    isNight={nightStatus}
+                    isLoading={isLoadingMarkets}
+                  />
+                )
+              ) : (
+                <div className="text-center py-16">
+                  <div className="text-5xl mb-4">🌤️</div>
+                  <h3 className={`text-lg font-light ${textColor} mb-2`}>No Weather Edges Today</h3>
+                  <p className={`text-sm ${textColor} opacity-70 leading-relaxed max-w-md mx-auto`}>
+                    Weather conditions must change significantly for new mispricings to emerge. Check back when weather forecasts update or new events are added to the market.
+                  </p>
+                  <button
+                    onClick={loadWeather}
+                    className={`mt-6 px-4 py-2 text-xs font-light rounded-lg border transition-all ${nightStatus
+                      ? 'bg-blue-600/40 hover:bg-blue-600/60 border-blue-400/40 text-blue-100'
+                      : 'bg-blue-200/60 hover:bg-blue-300/70 border-blue-400/50 text-blue-900'
+                      }`}
                   >
-                    View on BSCScan
-                  </a>
-                )}
-              </div>
-            )}
+                    Refresh Weather Data
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Analysis & Trading - Full Width Below */}
+            <div id="analysis-section" className="space-y-6">
+              {/* Analysis Display */}
+              {isLoadingAnalysis ? (
+                <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-8 flex justify-center`}>
+                  <div className={`w-6 h-6 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor}`}></div>
+                </div>
+              ) : analysis ? (
+                <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-96 overflow-y-auto`}>
+                  {useEnhancedComponents ? (
+                    <EnhancedAnalysisDisplay
+                      analysis={analysis}
+                      selectedMarket={selectedMarket}
+                      weatherData={weatherData}
+                      validation={weatherValidation}
+                      isNight={nightStatus}
+                      onTrade={() => setShowOrderForm(!showOrderForm)}
+                    />
+                  ) : (
+                    <AnalysisDisplay
+                      analysis={analysis}
+                      selectedMarket={selectedMarket}
+                      isNight={nightStatus}
+                      onTrade={() => setShowOrderForm(!showOrderForm)}
+                    />
+                  )}
+                </div>
+              ) : selectedMarket ? (
+                <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-8 text-center`}>
+                  <p className={`${textColor} opacity-60 text-sm mb-4`}>
+                    Ready to analyze this market?
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                    <button
+                      onClick={() => analyzeMarket(selectedMarket, 'basic')}
+                      disabled={isLoadingAnalysis}
+                      className={`py-3 rounded-2xl font-medium text-sm transition-all duration-300 border-2 ${nightStatus
+                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 border-blue-300 text-white shadow-lg shadow-blue-500/50'
+                        : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 border-blue-400 text-white shadow-lg shadow-blue-500/30'
+                        } disabled:opacity-40 hover:scale-105`}
+                    >
+                      Analyze (Standard)
+                    </button>
+                    <button
+                      onClick={() => analyzeMarketStream(selectedMarket)}
+                      disabled={isLoadingAnalysis}
+                      className={`py-3 rounded-2xl font-medium text-sm transition-all duration-300 border-2 ${nightStatus
+                        ? 'bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 border-green-300 text-white shadow-lg shadow-green-500/50'
+                        : 'bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 border-green-400 text-white shadow-lg shadow-green-500/30'
+                        } disabled:opacity-40 hover:scale-105`}
+                    >
+                      Analyze (Enhanced)
+                    </button>
+                  </div>
+                  <p className={`${textColor} opacity-40 text-xs`}>
+                    Standard: fast summary • Enhanced: web research and citations
+                  </p>
+                </div>
+              ) : (
+                <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-8 text-center`}>
+                  <p className={`${textColor} opacity-60 text-sm mb-2`}>
+                    No market selected
+                  </p>
+                  <p className={`${textColor} opacity-40 text-xs`}>
+                    Choose a market from the list to begin
+                  </p>
+                </div>
+              )}
+
+              {/* Order Form */}
+              {showOrderForm && selectedMarket && (
+                <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-96 overflow-y-auto`}>
+                  <h3 className={`text-lg font-light ${textColor} mb-4`}>
+                    Place Order - {selectedMarket.title}
+                  </h3>
+                  {useEnhancedComponents ? (
+                    <EnhancedOrderForm
+                      market={selectedMarket}
+                      walletAddress={address}
+                      isConnected={isConnected}
+                      onSuccess={handleOrderSuccess}
+                      isNight={nightStatus}
+                      chainId={chainId}
+                      weatherData={weatherData}
+                      validation={tradingValidation}
+                    />
+                  ) : (
+                    <OrderForm
+                      market={selectedMarket}
+                      walletAddress={address}
+                      isConnected={isConnected}
+                      onSuccess={handleOrderSuccess}
+                      isNight={nightStatus}
+                      chainId={chainId}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Order Success */}
+              {orderResult?.success && (
+                <div className={`backdrop-blur-xl border rounded-3xl p-4 ${nightStatus
+                  ? 'bg-green-500/20 border-green-500/30'
+                  : 'bg-green-400/20 border-green-400/30'
+                  }`}>
+                  <p className={`text-sm ${textColor}`}>
+                    Order submitted successfully!
+                  </p>
+                  {orderResult.orderID && String(orderResult.orderID).startsWith('0x') && (
+                    <a
+                      href={`https://bscscan.com/tx/${orderResult.orderID}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`${textColor} opacity-70 text-xs underline`}
+                    >
+                      View on BSCScan
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
       </div>
     </div>
   );
