@@ -87,8 +87,8 @@ export class APIInputValidator {
     }
     
     // VALIDATION 5: Mode validation
-    if (mode && !['basic', 'detailed', 'stream'].includes(mode)) {
-      errors.push('mode must be one of: basic, detailed, stream');
+    if (mode && !['basic', 'detailed', 'stream', 'deep'].includes(mode)) {
+      errors.push('mode must be one of: basic, detailed, stream, deep');
     }
     
     return {
