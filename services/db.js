@@ -113,6 +113,13 @@ const statements = {
  */
 export function savePrediction(prediction) {
   try {
+    // Validate timestamp is reasonable (within 5 min of now)
+    const now = Math.floor(Date.now() / 1000)
+    const timeDiff = Math.abs(now - prediction.timestamp)
+    if (timeDiff > 300) {
+      console.warn(`Prediction timestamp off by ${timeDiff}s - possible clock skew`)
+    }
+
     statements.insertPrediction.run(
       prediction.id,
       prediction.userAddress.toLowerCase(),

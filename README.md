@@ -8,17 +8,28 @@ An AI intelligence layer that analyzes weather forecasts to identify mispriced p
 
 Weather impacts billions in outcomes (sports performance, voter turnout, event logistics), but retail prediction market participants systematically under-weight these factors. Fourcast uses AI to detect information asymmetries where current odds don't reflect weather-adjusted probabilities.
 
-## 🔗 Why BNB Chain?
+## 🔗 Multi-Chain Architecture
 
-**Low Transaction Costs:** Weather predictions require frequent on-chain receipts. BNB Chain's <$0.10 gas fees enable sustainable micro-predictions at scale.
+### **Polymarket (Polygon) = Trading**
+- Actual prediction market orders and settlements
+- Established liquidity and professional trading infrastructure
+- Order books, spreads, market depth
 
-**Fast Finality:** 3-second block time means instant prediction confirmation for time-sensitive weather markets.
+### **BNB Chain = Analytics & Receipts**
+- Low-cost prediction receipts (<$0.10 per transaction)
+- Fast finality (3-second blocks) for instant confirmation
+- Immutable performance tracking and analytics storage
+- Cross-chain prediction history
 
-**Liquidity Access:** BNB ecosystem provides capital infrastructure for weather-sensitive markets.
+### **Why This Design?**
+Rather than bootstrapping our own prediction markets (expensive, slow), we leverage the best of both chains:
+- **Trade where liquidity exists** (Polymarket/Polygon)
+- **Track where it's cheap** (BNB Chain)
+- **Analyze across both** (unified dashboard)
 
-**Smart Architecture:** Rather than bootstrapping our own prediction markets (expensive, slow), we use BNB Chain for what it does best—low-cost, high-speed analytics tracking—while pulling market data from established platforms like Polymarket.
+This hybrid approach provides professional trading with affordable analytics—the best of both worlds.
 
-See [Architecture Guide](./docs/ARCHITECTURE.md) for our hybrid design rationale.
+See [Architecture Guide](./docs/ARCHITECTURE.md) for technical details.
 
 ## 🚀 MVP Scope (No Model Training Required)
 

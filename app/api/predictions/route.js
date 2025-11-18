@@ -1,5 +1,6 @@
 import { ethers } from 'ethers'
 import { savePrediction } from '@/services/db'
+import { getChainConfig, getSigner } from '@/services/chainConfig'
 
 const RATE_LIMIT = 50
 const WINDOW_MS = 60 * 60 * 1000
@@ -22,11 +23,6 @@ function checkLimit(id) {
   return true
 }
 
-function getProvider(rpcUrl) {
-  const url = rpcUrl || 'https://bsc-testnet.publicnode.com'
-  return new ethers.JsonRpcProvider(url)
-}
-
 const CONTRACT_ABI = [
   'function placePrediction(uint256 marketId, string side, uint256 stakeWei, uint16 oddsBps, string uri) external payable returns (bytes32)'
 ]
@@ -34,40 +30,6 @@ const CONTRACT_ABI = [
 function computeFee(stakeWei, bps) {
   const basis = BigInt(bps || 100)
   return (stakeWei * basis) / 10000n
-}
-
-function getChainConfig(chainId) {
-  const id = Number(chainId || 0)
-  if (id === 42161) {
-    return {
-      address: process.env.PREDICTION_CONTRACT_ADDRESS_ARBITRUM,
-      feeBps: parseInt(process.env.PREDICTION_FEE_BPS_ARBITRUM || process.env.PREDICTION_FEE_BPS || '100', 10),
-      rpcUrl: process.env.ARB_RPC_URL,
-      signerKey: process.env.ARB_PRIVATE_KEY
-    }
-  }
-  if (id === 56 || id === 97) {
-    return {
-      address: process.env.PREDICTION_CONTRACT_ADDRESS_BNB,
-      feeBps: parseInt(process.env.PREDICTION_FEE_BPS_BNB || process.env.PREDICTION_FEE_BPS || '100', 10),
-      rpcUrl: process.env.NEXT_PUBLIC_BNB_RPC_URL,
-      signerKey: process.env.BNB_PRIVATE_KEY
-    }
-  }
-  if (id === 137 || id === 80001) {
-    return {
-      address: process.env.PREDICTION_CONTRACT_ADDRESS_POLYGON,
-      feeBps: parseInt(process.env.PREDICTION_FEE_BPS_POLYGON || '100', 10),
-      rpcUrl: process.env.POLYGON_RPC_URL,
-      signerKey: process.env.POLYGON_PRIVATE_KEY
-    }
-  }
-  return {
-    address: process.env.PREDICTION_CONTRACT_ADDRESS,
-    feeBps: parseInt(process.env.PREDICTION_FEE_BPS || '100', 10),
-    rpcUrl: process.env.NEXT_PUBLIC_BNB_RPC_URL,
-    signerKey: process.env.BNB_PRIVATE_KEY
-  }
 }
 
 function buildTxData(contractAddress, payload, feeBps) {
@@ -136,7 +98,7 @@ export async function POST(request) {
     // Ensure feeBps aligns with on-chain contract config
     let effectiveFeeBps = cfg.feeBps
     try {
-      const provider = getProvider(cfg.rpcUrl)
+      const provider = new ethers.JsonRpcProvider(cfg.rpcUrl)
       const contract = new ethers.Contract(cfg.address, ['function feeBps() view returns (uint16)'], provider)
       const chainFee = await contract.feeBps()
       effectiveFeeBps = Number(chainFee)
@@ -150,15 +112,28 @@ export async function POST(request) {
       uri: metadataUri || ''
     }, effectiveFeeBps)
 
-    const serverPk = cfg.signerKey
-    if (!serverPk) {
+    const wallet = getSigner(chainId)
+    if (!wallet) {
       return Response.json({ success: true, txRequest: serializeTxRequest(txRequest), mode: 'client_signature_required' }, { status: 200 })
     }
-
-    const provider = getProvider(cfg.rpcUrl)
-    const wallet = new ethers.Wallet(serverPk, provider)
-    const tx = await wallet.sendTransaction(txRequest)
-    const receipt = await tx.wait()
+    
+    // Retry logic for transient failures
+    let tx, receipt
+    const maxRetries = 2
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        tx = await wallet.sendTransaction(txRequest)
+        receipt = await tx.wait()
+        break
+      } catch (txError) {
+        if (attempt === maxRetries) throw txError
+        if (txError.code === 'NONCE_EXPIRED' || txError.code === 'REPLACEMENT_UNDERPRICED') {
+          await new Promise(r => setTimeout(r, 2000)) // Wait 2s before retry
+          continue
+        }
+        throw txError // Don't retry other errors
+      }
+    }
 
     // Save to database for analytics
     const predictionId = ethers.keccak256(
