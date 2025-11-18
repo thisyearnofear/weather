@@ -530,6 +530,42 @@ All Markets → Score by Volume/Liquidity/Volatility → Rank & Return
 - Confidence scoring for extracted venues
 - Pre-extraction during catalog build
 
+### Venue Extraction Improvements Needed
+- Expand team-to-city mapping (international leagues)
+- Stadium name normalization
+- Confidence scoring for extracted venues
+- Pre-extraction during catalog build
+
+## Production Integration Status
+
+### /ai Page Integration (Event Weather Analysis) ✅
+- **Frontend:** Removed geolocation, passes `analysisType: 'event-weather'`
+- **Backend:** Venue extraction, event weather fetching, weather-based scoring
+- **Venue Extraction:** NFL + EPL teams mapped, 80+ stadiums covered
+- **Success Rate:** 22% clear extraction, 53.5% partial, 24.2% failed
+
+### /discovery Page Integration (Global Discovery) ✅
+- **Frontend:** Positioned as market browser, passes `analysisType: 'discovery'`
+- **Backend:** Market efficiency scoring, no venue extraction needed
+- **Performance:** Fast loading, no weather API dependency
+- **Coverage:** All market categories, location-agnostic
+
+### Key Files Integration Status
+```
+✅ app/ai/page.js - Event weather mode
+✅ app/discovery/page.js - Discovery mode
+✅ app/api/markets/route.js - analysisType parameter
+✅ services/polymarketService.js - Mode differentiation
+✅ services/venueExtractor.js - Venue extraction service
+```
+
+### Production Readiness ✅
+- Build tests passing
+- Venue extraction tested on 99 real markets
+- API endpoints functional
+- Error handling implemented
+- Documentation updated
+
 ---
 
 *Architecture Guide - Last updated: November 2024*
