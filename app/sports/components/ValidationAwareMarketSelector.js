@@ -310,31 +310,37 @@ export default function ValidationAwareMarketSelector({
   }
 
   return (
-    <div className={`${getCardBg()} ${getTextColor()} rounded-3xl shadow-2xl overflow-hidden backdrop-blur-xl`}>
+    <div className={`overflow-hidden`}>
       {/* Header */}
-      <div className={`p-8 border-b ${isNight ? 'border-slate-700/50' : 'border-slate-200/50'}`}>
-        <h3 className={`text-xl font-light ${getTextColor()} mb-6 tracking-wide`}>
+      <div className="mb-4">
+        <h3 className={`text-lg font-light ${getTextColor()} mb-4 tracking-wide opacity-90`}>
           Select Market for Analysis
         </h3>
 
         {/* Search */}
-        <div className="relative mb-6">
-          <Search className={`absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 ${getMutedText()}`} />
+        <div className="relative mb-4">
+          <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 ${getMutedText()}`} />
           <input
             type="text"
             placeholder="Search markets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className={`w-full pl-12 pr-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
+            className={`w-full pl-10 pr-3 py-2 text-sm rounded-lg border transition-all ${isNight
+              ? 'bg-white/10 border-white/20 text-white placeholder-white/50 focus:ring-1 focus:ring-blue-400'
+              : 'bg-black/10 border-black/20 text-black placeholder-black/50 focus:ring-1 focus:ring-blue-400'
+            } focus:outline-none`}
           />
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <select
             value={filters.compatibility}
             onChange={(e) => handleFilterChange('compatibility', e.target.value)}
-            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
+            className={`px-3 py-2 text-sm rounded-lg border transition-all ${isNight
+              ? 'bg-white/10 border-white/20 text-white focus:ring-1 focus:ring-blue-400'
+              : 'bg-black/10 border-black/20 text-black focus:ring-1 focus:ring-blue-400'
+            } focus:outline-none`}
           >
             <option value="all">All Compatibility</option>
             <option value="compatible">Weather Compatible</option>
@@ -344,7 +350,10 @@ export default function ValidationAwareMarketSelector({
           <select
             value={filters.riskLevel}
             onChange={(e) => handleFilterChange('riskLevel', e.target.value)}
-            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
+            className={`px-3 py-2 text-sm rounded-lg border transition-all ${isNight
+              ? 'bg-white/10 border-white/20 text-white focus:ring-1 focus:ring-blue-400'
+              : 'bg-black/10 border-black/20 text-black focus:ring-1 focus:ring-blue-400'
+            } focus:outline-none`}
           >
             <option value="all">All Risk Levels</option>
             <option value="low">Low Risk</option>
@@ -355,7 +364,10 @@ export default function ValidationAwareMarketSelector({
           <select
             value={filters.dataQuality}
             onChange={(e) => handleFilterChange('dataQuality', e.target.value)}
-            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
+            className={`px-3 py-2 text-sm rounded-lg border transition-all ${isNight
+              ? 'bg-white/10 border-white/20 text-white focus:ring-1 focus:ring-blue-400'
+              : 'bg-black/10 border-black/20 text-black focus:ring-1 focus:ring-blue-400'
+            } focus:outline-none`}
           >
             <option value="all">All Data Quality</option>
             <option value="excellent">Excellent</option>
@@ -366,7 +378,10 @@ export default function ValidationAwareMarketSelector({
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className={`px-4 py-3 ${getInputBg()} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 border transition-all duration-200`}
+            className={`px-3 py-2 text-sm rounded-lg border transition-all ${isNight
+              ? 'bg-white/10 border-white/20 text-white focus:ring-1 focus:ring-blue-400'
+              : 'bg-black/10 border-black/20 text-black focus:ring-1 focus:ring-blue-400'
+            } focus:outline-none`}
           >
             <option value="volume">Sort by Volume</option>
             <option value="compatibility">Sort by Weather Compatibility</option>
@@ -379,11 +394,11 @@ export default function ValidationAwareMarketSelector({
       {/* Markets List */}
       <div className="max-h-96 overflow-y-auto">
         {filteredMarkets.length === 0 ? (
-          <div className="text-center py-12">
-            <p className={`${getMutedText()} text-lg`}>No markets match your criteria</p>
+          <div className="text-center py-8">
+            <p className={`${getMutedText()} text-sm font-light opacity-70`}>No markets match your criteria</p>
           </div>
         ) : (
-          <div className={`divide-y ${isNight ? 'divide-slate-700/50' : 'divide-slate-200/50'}`}>
+          <div className={`divide-y ${isNight ? 'divide-white/10' : 'divide-black/10'}`}>
             {filteredMarkets.map((market, index) => (
               <MarketCard
                 key={market.id || index}
@@ -402,7 +417,7 @@ export default function ValidationAwareMarketSelector({
       </div>
 
       {/* Footer Stats */}
-      <div className={`${isNight ? 'bg-slate-800/30 border-slate-700/50' : 'bg-slate-50/50 border-slate-200/50'} border-t p-6 text-sm ${getMutedText()}`}>
+      <div className={`border-t p-4 text-xs ${getMutedText()} opacity-60 font-light ${isNight ? 'border-white/10' : 'border-black/10'}`}>
         Showing {filteredMarkets.length} of {markets.length} markets
       </div>
     </div>
@@ -428,34 +443,34 @@ function MarketCard({
 
   return (
     <div
-      className={`p-6 cursor-pointer transition-all duration-200 ${
+      className={`p-4 cursor-pointer transition-all duration-200 ${
         isNight
           ? (isSelected
-            ? 'bg-blue-900/30 border-l-4 border-blue-400/70'
-            : 'hover:bg-slate-800/30')
+            ? 'bg-blue-900/20 border-l-3 border-blue-400/50'
+            : 'hover:bg-white/5')
           : (isSelected
-            ? 'bg-blue-50/50 border-l-4 border-blue-500/70'
-            : 'hover:bg-slate-50/50')
+            ? 'bg-blue-50/50 border-l-3 border-blue-500/50'
+            : 'hover:bg-black/5')
       }`}
       onClick={onSelect}
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         {/* Title and Validation Badges */}
         <div className="flex items-start justify-between">
-          <h4 className={`font-medium ${getTextColor()} flex-1 pr-4 leading-relaxed`}>
+          <h4 className={`font-light ${getTextColor()} flex-1 pr-4 leading-relaxed text-sm`}>
             {market.title || market.question}
           </h4>
           
           <div className="flex items-center space-x-2 flex-shrink-0">
             {validation.weatherCompatible ? (
-              <div className={`flex items-center space-x-1 ${isNight ? 'text-green-400' : 'text-green-600'}`}>
-                <CheckCircle className="h-4 w-4" />
-                <span className="text-xs font-medium">Weather Compatible</span>
+              <div className={`flex items-center space-x-1 opacity-70 ${isNight ? 'text-green-400' : 'text-green-600'}`}>
+                <CheckCircle className="h-3 w-3" />
+                <span className="text-xs font-light">Weather Compatible</span>
               </div>
             ) : (
-              <div className={`flex items-center space-x-1 ${getMutedText()}`}>
-                <AlertTriangle className="h-4 w-4" />
-                <span className="text-xs font-medium">Limited Impact</span>
+              <div className={`flex items-center space-x-1 opacity-50 ${getMutedText()}`}>
+                <AlertTriangle className="h-3 w-3" />
+                <span className="text-xs font-light">Limited Impact</span>
               </div>
             )}
           </div>
@@ -463,16 +478,16 @@ function MarketCard({
 
         {/* Market Stats and Prices */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-6 text-sm">
+          <div className="flex items-center space-x-4 text-xs">
             <div className="flex items-center space-x-2">
-              <Users className={`h-4 w-4 ${getMutedText()}`} />
-              <span className={getTextColor()}>${(volume / 1000000).toFixed(2)}M</span>
+              <Users className={`h-3 w-3 ${getMutedText()}`} />
+              <span className={`${getTextColor()} font-light opacity-80`}>${(volume / 1000000).toFixed(2)}M</span>
             </div>
             
             {market.endDate && (
               <div className="flex items-center space-x-2">
-                <Clock className={`h-4 w-4 ${getMutedText()}`} />
-                <span className={getTextColor()}>
+                <Clock className={`h-3 w-3 ${getMutedText()}`} />
+                <span className={`${getTextColor()} font-light opacity-80`}>
                   {Math.max(0, Math.round((new Date(market.endDate) - new Date()) / (1000 * 60 * 60 * 24)))} days
                 </span>
               </div>
@@ -480,8 +495,8 @@ function MarketCard({
 
             {market.currentOdds && (
               <div className="flex items-center space-x-2">
-                <span className="text-green-600">YES {market.currentOdds.yes}</span>
-                <span className="text-red-600">NO {market.currentOdds.no}</span>
+                <span className={`font-light opacity-80 ${isNight ? 'text-green-400' : 'text-green-600'}`}>YES {market.currentOdds.yes}</span>
+                <span className={`font-light opacity-80 ${isNight ? 'text-red-400' : 'text-red-600'}`}>NO {market.currentOdds.no}</span>
               </div>
             )}
           </div>
@@ -502,7 +517,7 @@ function MarketCard({
 
         {/* Warnings */}
         {validation.warnings && validation.warnings.length > 0 && (
-          <div className={`text-xs ${isNight ? 'text-amber-400' : 'text-amber-600'}`}>
+          <div className={`text-xs font-light opacity-70 ${isNight ? 'text-amber-400' : 'text-amber-600'}`}>
             ⚠ {validation.warnings[0]}
             {validation.warnings.length > 1 && (
               <span> +{validation.warnings.length - 1} more</span>

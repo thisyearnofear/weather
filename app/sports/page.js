@@ -589,9 +589,9 @@ export default function AIPage() {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-12 flex-1">
-          {/* Filter Controls - Simplified */}
-          <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 mb-6`}>
-            <div className="space-y-4">
+          {/* Filter Controls - Compact */}
+          <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-4 mb-4`}>
+            <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
                   }`}>
@@ -654,13 +654,13 @@ export default function AIPage() {
 
               {/* Event Type Filter */}
               <div>
-                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Event Type</label>
+                <label className={`${textColor} text-xs opacity-60 block mb-1`}>Event Type</label>
                 <select
                   value={marketFilters.eventType}
                   onChange={(e) => setMarketFilters(prev => ({ ...prev, eventType: e.target.value }))}
-                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
-                    ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400'
-                    : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
+                  className={`w-full px-3 py-2 text-sm rounded-lg border transition-all ${nightStatus
+                    ? 'bg-white/10 border-white/20 text-white focus:ring-1 focus:ring-blue-400'
+                    : 'bg-black/10 border-black/20 text-black focus:ring-1 focus:ring-blue-400'
                     } focus:outline-none`}
                 >
                   <optgroup label="Fully Supported (with venue extraction)">
@@ -689,28 +689,28 @@ export default function AIPage() {
 
               {/* Search */}
               <div>
-                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Search Events</label>
+                <label className={`${textColor} text-xs opacity-60 block mb-1`}>Search Events</label>
                 <input
                   type="text"
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   placeholder="e.g., Chiefs, Liverpool, Arrowhead Stadium"
-                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
-                    ? 'bg-white/10 border-white/20 text-white placeholder-white/50 focus:ring-2 focus:ring-blue-400'
-                    : 'bg-black/10 border-black/20 text-black placeholder-black/50 focus:ring-2 focus:ring-blue-400'
+                  className={`w-full px-3 py-2 text-sm rounded-lg border transition-all ${nightStatus
+                    ? 'bg-white/10 border-white/20 text-white placeholder-white/50 focus:ring-1 focus:ring-blue-400'
+                    : 'bg-black/10 border-black/20 text-black placeholder-black/50 focus:ring-1 focus:ring-blue-400'
                     } focus:outline-none`}
                 />
               </div>
 
               {/* Min Volume Filter */}
               <div>
-                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Minimum 24h Volume</label>
+                <label className={`${textColor} text-xs opacity-60 block mb-1`}>Minimum 24h Volume</label>
                 <select
                   value={String(minVolume)}
                   onChange={(e) => setMinVolume(parseInt(e.target.value))}
-                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
-                    ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400'
-                    : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
+                  className={`w-full px-3 py-2 text-sm rounded-lg border transition-all ${nightStatus
+                    ? 'bg-white/10 border-white/20 text-white focus:ring-1 focus:ring-blue-400'
+                    : 'bg-black/10 border-black/20 text-black focus:ring-1 focus:ring-blue-400'
                     } focus:outline-none`}
                 >
                   <option value="10000">$10k+</option>
@@ -721,13 +721,13 @@ export default function AIPage() {
 
               {/* Confidence Filter */}
               <div>
-                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Confidence Level</label>
+                <label className={`${textColor} text-xs opacity-60 block mb-1`}>Confidence Level</label>
                 <select
                   value={marketFilters.confidence}
                   onChange={(e) => setMarketFilters(prev => ({ ...prev, confidence: e.target.value }))}
-                  className={`w-full px-4 py-2.5 text-sm rounded-xl border transition-all ${nightStatus
-                    ? 'bg-white/10 border-white/20 text-white focus:ring-2 focus:ring-blue-400'
-                    : 'bg-black/10 border-black/20 text-black focus:ring-2 focus:ring-blue-400'
+                  className={`w-full px-3 py-2 text-sm rounded-lg border transition-all ${nightStatus
+                    ? 'bg-white/10 border-white/20 text-white focus:ring-1 focus:ring-blue-400'
+                    : 'bg-black/10 border-black/20 text-black focus:ring-1 focus:ring-blue-400'
                     } focus:outline-none`}
                 >
                   <option value="HIGH">High Confidence</option>
@@ -738,35 +738,32 @@ export default function AIPage() {
 
               {/* Max Days to Resolution */}
               <div>
-                <label className={`${textColor} text-xs opacity-60 block mb-2`}>Max Days to Resolution</label>
-                <input
-                  type="range"
-                  min={3}
-                  max={60}
-                  step={1}
-                  value={maxDaysToResolution}
-                  onChange={(e) => setMaxDaysToResolution(parseInt(e.target.value))}
-                  className="w-full"
-                />
-                <div className={`${textColor} text-xs opacity-70 mt-1`}>{maxDaysToResolution} days</div>
-                <div className="flex items-center gap-2 mt-2">
+                <label className={`${textColor} text-xs opacity-60 block mb-1`}>Max Days to Resolution</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setMaxDaysToResolution(3)}
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${maxDaysToResolution === 3 ? (nightStatus ? 'bg-blue-600 border-blue-500 text-white' : 'bg-blue-500 border-blue-400 text-white') : (nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black')
+                      }`}
+                  >
+                    3d
+                  </button>
                   <button
                     onClick={() => setMaxDaysToResolution(7)}
-                    className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${maxDaysToResolution === 7 ? (nightStatus ? 'bg-blue-600 border-blue-500 text-white' : 'bg-blue-500 border-blue-400 text-white') : (nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black')
                       }`}
                   >
                     7d
                   </button>
                   <button
                     onClick={() => setMaxDaysToResolution(14)}
-                    className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${maxDaysToResolution === 14 ? (nightStatus ? 'bg-blue-600 border-blue-500 text-white' : 'bg-blue-500 border-blue-400 text-white') : (nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black')
                       }`}
                   >
                     14d
                   </button>
                   <button
                     onClick={() => setMaxDaysToResolution(30)}
-                    className={`px-3 py-1 text-xs rounded-full border ${nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${maxDaysToResolution === 30 ? (nightStatus ? 'bg-blue-600 border-blue-500 text-white' : 'bg-blue-500 border-blue-400 text-white') : (nightStatus ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black')
                       }`}
                   >
                     30d
@@ -828,7 +825,7 @@ export default function AIPage() {
 
           <div className="space-y-6">
             {/* Markets - Full Width */}
-            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-[350px] overflow-y-auto`}>
+            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 max-h-[500px] overflow-y-auto`}>
               {isLoadingMarkets ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <div className={`w-8 h-8 border-2 border-current/30 border-t-current rounded-full animate-spin ${textColor} mb-4`}></div>
