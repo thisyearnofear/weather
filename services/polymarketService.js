@@ -348,7 +348,7 @@ class PolymarketService {
    * ROADMAP: Foundation for Phase 2 & 3 (weather scoring & edge detection)
    * IMPROVED: Now uses /events endpoint to get full tag metadata
    */
-  async buildMarketCatalog(minVolume = 50000, eventTypeFilter = null) {
+  async buildMarketCatalog(minVolume = 50000, eventTypeFilter = null, analysisType = 'discovery') {
     // Check cache first
     const cached = this.getCachedCatalog(eventTypeFilter);
     if (cached) {
@@ -504,6 +504,177 @@ class PolymarketService {
             }
           }
         }
+        // SPECIAL CASE: 'all' - behavior depends on analysis type
+        else if (eventTypeFilter === 'all') {
+          // For sports page (/sports with analysisType: 'event-weather'), limit to supported sports only
+          if (analysisType === 'event-weather') {
+            console.debug(`🏆 Fetching markets from all supported sports (event-weather mode)...`);
+            const allSportsMarkets = [];
+          
+          // Fetch NFL markets
+          try {
+            const nflTagId = await this.getCategoryTagId('NFL');
+            if (nflTagId) {
+              const nflResponse = await axios.get(`${this.baseURL}/events`, {
+                params: { tag_id: nflTagId, closed: false, limit: 50 },
+                timeout: 10000
+              });
+              
+              if (nflResponse.data && Array.isArray(nflResponse.data)) {
+                const now = new Date();
+                const maxDate = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+                
+                for (const event of nflResponse.data) {
+                  const endDate = event.endDate || event.end_date;
+                  if (endDate && new Date(endDate) > maxDate) continue;
+                  
+                  if (event.markets && Array.isArray(event.markets)) {
+                    const eventsMarkets = event.markets.map(m => ({
+                      ...m,
+                      eventTags: event.tags || [],
+                      endDate: m.endDate || event.endDate || event.end_date,
+                      eventType: 'NFL'
+                    }));
+                    allSportsMarkets.push(...eventsMarkets);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.debug('Error fetching NFL markets for "all":', err.message);
+          }
+          
+          // Fetch Soccer markets
+          try {
+            const soccerTags = await this.getCategoryTagId('Soccer');
+            if (soccerTags && Array.isArray(soccerTags)) {
+              for (const tagId of soccerTags.slice(0, 5)) { // Limit to top 5 leagues for "all" mode
+                try {
+                  const soccerResponse = await axios.get(`${this.baseURL}/events`, {
+                    params: { tag_id: tagId, closed: false, limit: 30 },
+                    timeout: 10000
+                  });
+                  
+                  if (soccerResponse.data && Array.isArray(soccerResponse.data)) {
+                    const now = new Date();
+                    const maxDate = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+                    
+                    for (const event of soccerResponse.data) {
+                      const endDate = event.endDate || event.end_date;
+                      if (endDate && new Date(endDate) > maxDate) continue;
+                      
+                      if (event.markets && Array.isArray(event.markets)) {
+                        const eventsMarkets = event.markets.map(m => ({
+                          ...m,
+                          eventTags: event.tags || [],
+                          endDate: m.endDate || event.endDate || event.end_date,
+                          eventType: 'Soccer'
+                        }));
+                        allSportsMarkets.push(...eventsMarkets);
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.debug(`Error fetching soccer tag ${tagId} for "all":`, err.message);
+                }
+              }
+            }
+          } catch (err) {
+            console.debug('Error fetching Soccer markets for "all":', err.message);
+          }
+          
+          // Fetch F1 markets
+          try {
+            const f1TagId = await this.getCategoryTagId('F1');
+            if (f1TagId) {
+              const f1Response = await axios.get(`${this.baseURL}/events`, {
+                params: { tag_id: f1TagId, closed: false, limit: 30 },
+                timeout: 10000
+              });
+              
+              if (f1Response.data && Array.isArray(f1Response.data)) {
+                const now = new Date();
+                const maxDate = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+                
+                for (const event of f1Response.data) {
+                  const endDate = event.endDate || event.end_date;
+                  if (endDate && new Date(endDate) > maxDate) continue;
+                  
+                  if (event.markets && Array.isArray(event.markets)) {
+                    const eventsMarkets = event.markets.map(m => ({
+                      ...m,
+                      eventTags: event.tags || [],
+                      endDate: m.endDate || event.endDate || event.end_date,
+                      eventType: 'F1'
+                    }));
+                    allSportsMarkets.push(...eventsMarkets);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.debug('Error fetching F1 markets for "all":', err.message);
+          }
+          
+            allMarkets = allSportsMarkets;
+            console.debug(`✨ Extracted ${allMarkets.length} markets from all supported sports`);
+          } else {
+            // For discovery page (analysisType: 'discovery'), fetch from general markets (no sports restriction)
+            console.debug(`🌐 Fetching markets from all categories (discovery mode)...`);
+            
+            const params = {
+              limit: 200,
+              offset: 0,
+              closed: false
+            };
+
+            console.debug(`🔗 Fetching from ${this.baseURL}/events with params:`, params);
+            const response = await axios.get(`${this.baseURL}/events`, {
+              params,
+              timeout: 10000
+            });
+
+            console.debug(`📥 Response received:`, {
+              isArray: Array.isArray(response.data),
+              length: Array.isArray(response.data) ? response.data.length : 'N/A',
+              hasEvents: Array.isArray(response.data) ? response.data.some(e => e.markets) : false
+            });
+
+            if (response.data && Array.isArray(response.data)) {
+              // Extract markets from events (each event can have multiple markets)
+              const events = response.data;
+              let marketCount = 0;
+              const now = new Date();
+              const maxDaysOut = 60; // Fetch up to 60 days, we'll filter more aggressively later
+              const maxDate = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000);
+
+              for (const event of events) {
+                // Filter events by end date at extraction time
+                const endDate = event.endDate || event.end_date;
+                if (endDate) {
+                  const eventEndDate = new Date(endDate);
+                  if (eventEndDate > maxDate) {
+                    continue;
+                  }
+                }
+
+                if (event.markets && Array.isArray(event.markets)) {
+                  // Extract markets and add metadata
+                  const eventsMarkets = event.markets.map(m => ({
+                    ...m,
+                    eventTags: event.tags || [],
+                    endDate: m.endDate || event.endDate || event.end_date,
+                    eventType: m.eventType || null // Keep original eventType
+                  }));
+                  allMarkets = allMarkets.concat(eventsMarkets);
+                  marketCount += eventsMarkets.length;
+                }
+              }
+              
+              console.debug(`✨ Extracted ${allMarkets.length} markets from general events (discovery mode)`);
+            }
+          }
+        }
         // For other sports or categories, use existing logic
         else {
           const sportTypes = ['Sports', 'NBA', 'MLB', 'NHL', 'Tennis', 'Golf', 'Cricket'];
@@ -517,7 +688,7 @@ class PolymarketService {
           };
 
           // If filtering by non-sports category, get tag ID and fetch those markets
-          if (!isSportsFilter && eventTypeFilter && eventTypeFilter !== 'all' && eventTypeFilter !== 'Weather') {
+          if (!isSportsFilter && eventTypeFilter && eventTypeFilter !== 'Weather') {
             const tagId = await this.getCategoryTagId(eventTypeFilter);
             console.debug(`📌 Category filter: ${eventTypeFilter} -> tag_id: ${tagId}`);
             if (tagId) {
@@ -906,7 +1077,7 @@ class PolymarketService {
       const analysisType = filters.analysisType || 'discovery';
 
       // Get full catalog (without order book enrichment to avoid rate limits)
-      const catalogResult = await this.buildMarketCatalog(filters.minVolume || 50000, filters.eventType);
+      const catalogResult = await this.buildMarketCatalog(filters.minVolume || 50000, filters.eventType, analysisType);
 
       console.debug(`📦 Market catalog built:`, {
         total: catalogResult.markets?.length,
