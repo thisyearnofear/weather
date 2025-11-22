@@ -1,0 +1,81 @@
+'use client';
+
+import { useState, useCallback } from 'react';
+import { useWallet } from '@aptos-labs/wallet-adapter-react';
+import { aptosPublisher } from '@/services/aptosPublisher';
+
+/**
+ * Custom hook for publishing signals to Aptos
+ * 
+ * Product Design:
+ * 1. User clicks "Publish Signal" → wallet popup
+ * 2. User approves → signal saves to SQLite + Aptos
+ * 3. Success → shows tx_hash and explorer link
+ * 4. Failure → signal still in SQLite, can retry
+ * 
+ * Security:
+ * - No private keys in backend
+ * - User wallet signs all transactions
+ * - Each signal tied to user's address (reputation)
+ */
+export function useAptosSignalPublisher() {
+    const { account, signAndSubmitTransaction, connected } = useWallet();
+    const [isPublishing, setIsPublishing] = useState(false);
+    const [publishError, setPublishError] = useState(null);
+
+    /**
+     * Publish signal to Aptos blockchain
+     * Returns tx_hash on success, null on failure
+     */
+    const publishToAptos = useCallback(async (signalData) => {
+        if (!connected || !account) {
+            setPublishError('Please connect your Aptos wallet first');
+            return null;
+        }
+
+        setIsPublishing(true);
+        setPublishError(null);
+
+        try {
+            // Prepare transaction payload
+            const payload = aptosPublisher.preparePublishSignalPayload(signalData);
+
+            // User wallet signs and submits transaction
+            const response = await signAndSubmitTransaction({
+                data: payload,
+            });
+
+            // Wait for transaction confirmation
+            const result = await aptosPublisher.waitForTransaction(response.hash);
+
+            if (result.success) {
+                return response.hash;
+            } else {
+                throw new Error(result.vm_status || 'Transaction failed');
+            }
+        } catch (error) {
+            console.error('Aptos publish failed:', error);
+            setPublishError(error.message || 'Failed to publish to Aptos');
+            return null;
+        } finally {
+            setIsPublishing(false);
+        }
+    }, [connected, account, signAndSubmitTransaction]);
+
+    /**
+     * Get user's signal count
+     */
+    const getMySignalCount = useCallback(async () => {
+        if (!account?.address) return 0;
+        return await aptosPublisher.getSignalCount(account.address);
+    }, [account]);
+
+    return {
+        publishToAptos,
+        getMySignalCount,
+        isPublishing,
+        publishError,
+        connected,
+        walletAddress: account?.address,
+    };
+}

@@ -609,30 +609,180 @@ All Markets → Score by Volume/Liquidity/Volatility → Rank & Return
 
 ---
 
-## Aptos Integration Design
+## Aptos Integration Architecture
 
-**Goal**
-- On-chain Signal Objects in Move, event emissions for indexers, devnet writer service.
+### Overview
 
-**Move Object Fields**
-- `event_id: vector<u8>`
-- `venue: vector<u8>`
-- `event_time: u64`
-- `snapshot_hash: vector<u8>`
-- `confidence: u8`
-- `odds_efficiency: u8`
-- `version: u8`
+User wallet-based Aptos integration for publishing weather × odds × AI signals on-chain. Prioritizes security, simplicity, and user ownership for first Aptos deployment.
 
-**Events**
-- `SignalPublished { event_id, timestamp }` emitted to support queries
+### Architecture Pattern: User Wallet Connection
 
-**Writer Service**
-- Node service signs and submits transactions; dedup via `snapshot_hash`
+**Decision Rationale:**
+- ✅ **Security**: No private keys in backend
+- ✅ **Accountability**: Signals tied to user addresses (reputation building)
+- ✅ **Simplicity**: Wallet handles all cryptographic operations
+- ✅ **Cost Distribution**: Users pay gas fees (~$0.0001 per signal)
+- ✅ **Decentralization**: True ownership of published signals
+- ✅ **Risk Mitigation**: Minimize backend complexity for first deployment
 
-**Identity**
-- Aptos wallet adapters for author attribution and future premium gating
+### Component Architecture
 
-**Evolution**
-- Start with minimal fields; extend via versioning and off-chain enrichments
+```
+Frontend (Next.js)
+├── AptosProvider (wallet context)
+├── AptosConnectButton (UI component)
+├── useAptosSignalPublisher (React hook)
+└── Markets page (integration point)
+
+Services
+├── aptosPublisher.js (transaction preparation)
+└── db.js (SQLite persistence)
+
+Blockchain (Aptos Devnet)
+├── signal_registry.move (Move module)
+├── User accounts (signal storage)
+└── Events (indexing layer)
+```
+
+### Progressive Enhancement Pattern
+
+**Flow:**
+1. Signal saves to SQLite → Immediate success ✅
+2. Aptos publish (async) → On-chain proof 🔗
+3. If Aptos fails → Signal still exists, can retry 🔄
+4. Update SQLite with tx_hash → Link local + blockchain 🎯
+
+**Benefits:**
+- Fast user feedback (SQLite)
+- Graceful degradation (works offline)
+- Retry mechanism (recover from failures)
+- Best UX (fast + reliable)
+
+### Move Module Design
+
+**Signal Storage Model:**
+```move
+struct Signal has store, drop, copy {
+    event_id: String,
+    market_title: String,
+    venue: String,
+    event_time: u64,
+    market_snapshot_hash: String,
+    weather_json: String,
+    ai_digest: String,
+    confidence: String,
+    odds_efficiency: String,
+    author_address: address,
+    timestamp: u64,
+}
+
+struct SignalRegistry has key {
+    signals: Table<String, Signal>,
+    signal_count: u64,
+}
+```
+
+**Event Emissions:**
+```move
+#[event]
+struct SignalPublished has drop, store {
+    signal_id: String,
+    event_id: String,
+    author: address,
+    timestamp: u64,
+    confidence: String,
+    odds_efficiency: String,
+}
+```
+
+### Frontend Integration
+
+**Wallet Provider:**
+```javascript
+<AptosWalletAdapterProvider
+  plugins={[PetraWallet, MartianWallet, PontemWallet]}
+  autoConnect={true}
+>
+  {children}
+</AptosWalletAdapterProvider>
+```
+
+**Publishing Hook:**
+```javascript
+const { publishToAptos, isPublishing, connected } = useAptosSignalPublisher();
+
+// Prepare transaction
+const payload = aptosPublisher.preparePublishSignalPayload(signalData);
+
+// User wallet signs
+const response = await signAndSubmitTransaction({ data: payload });
+
+// Wait for confirmation
+const result = await aptosPublisher.waitForTransaction(response.hash);
+```
+
+### Security Model
+
+**What's Secure:**
+- ✅ No private keys in backend
+- ✅ User signs all transactions
+- ✅ Signals tied to verified addresses
+- ✅ Immutable on-chain record
+- ✅ Event emissions for transparency
+
+**What to Monitor:**
+- ⚠️ Wallet connection errors
+- ⚠️ Transaction failures (gas, network)
+- ⚠️ SQLite/Aptos sync issues
+- ⚠️ Malformed signal data
+
+### Cost Analysis
+
+**Devnet** (Current):
+- Gas fees: **FREE** (faucet)
+- Storage: **FREE** (test environment)
+- Transactions: **UNLIMITED**
+
+**Mainnet** (Future):
+- Gas per signal: **~$0.0001**
+- Storage: **~$0.001** per signal
+- Monthly (100 signals): **~$0.01**
+
+### User Experience Flow
+
+**First-Time User:**
+1. Visit Markets page
+2. Click "Connect Aptos Wallet"
+3. Install Petra wallet
+4. Create wallet → Switch to Devnet
+5. Fund with faucet
+6. Analyze market → Publish signal
+7. Approve transaction in Petra
+8. See success with tx_hash
+
+**Returning User:**
+1. Markets page (auto-connect)
+2. Analyze market
+3. Click "Publish Signal"
+4. Approve in Petra
+5. Done!
+
+### Migration Path
+
+**Devnet → Mainnet:**
+1. Test thoroughly (2-4 weeks)
+2. Audit Move module
+3. Update env vars to mainnet
+4. Redeploy module
+5. Communicate to users
+6. Monitor closely
+
+**Checklist:**
+- [ ] 100+ signals on devnet
+- [ ] Zero critical bugs
+- [ ] User feedback incorporated
+- [ ] Gas costs acceptable
+- [ ] Documentation complete
 
 *Architecture Guide - Last updated: November 2024*
+

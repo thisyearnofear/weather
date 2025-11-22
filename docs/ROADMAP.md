@@ -1,690 +1,483 @@
-# Product Roadmap: /ai vs /discovery Differentiation
+# Product Roadmap - Fourcast
 
-**Last Updated:** November 2024  
-**Status:** In Planning → In Progress
-
----
-
-## Problem Statement
-
-Currently, `/ai` and `/discovery` pages are functionally identical:
-
-- Both fetch weather for **user location** (geolocation)
-- Both pass that to the same `/api/markets` endpoint
-- Both show the same markets + analysis
-- `/ai` shows empty results when user location weather doesn't match market keywords
-
-**Root cause:** The product model is backwards. For sports events, the event _location_ is relevant, not the user's location.
+**Status:** Phase 7 Complete → Phase 8 (Aptos Integration) In Progress
 
 ---
 
-## Vision
+## Current State: What's Built ✅
 
-### `/ai` Page: "Event Weather Analysis"
+### Core Infrastructure
+- ✅ **Markets Page** - Consolidated Sports + Discovery with tabbed interface
+- ✅ **Signals Page** - Registry with filters, per-event timelines
+- ✅ **Weather Service** - Real-time weather data integration
+- ✅ **AI Analysis** - Venice AI integration for market analysis
+- ✅ **Venue Extraction** - 80+ stadiums, NFL + EPL teams mapped
+- ✅ **SQLite Signals** - Local persistence with author_address tracking
+- ✅ **EVM Wallet** - ConnectKit integration (MetaMask, Coinbase, etc.)
 
-Analyze upcoming **sports/event markets** to find edges where **venue weather** creates mispricings.
+### Data Flow (Current)
+```
+Polymarket API → Weather Analysis → AI Edge Detection → Display
+                                                          ↓
+                                    User publishes → SQLite (with EVM address)
+```
 
-**User Journey:**
-
-- Browse upcoming sports events (NFL, NBA, Soccer, etc.)
-- See weather forecast at the **game location**
-- Understand how weather impacts odds
-- Find weather-driven trading edges
-
-**Success Metric:** Users see 5-10 relevant events per session (vs. empty page today).
-
-### `/discovery` Page: "Global Market Discovery"
-
-Browse **all prediction markets** globally. Optionally filter by category/volume. Deep-dive analysis on any market.
-
-**User Journey:**
-
-- Search for markets by name, category, or keywords
-- Filter by volume, timeframe, category
-- Click to analyze any market (weather context is secondary)
-- Find all types of edges (not just weather)
-
-**Success Metric:** High-volume markets always visible, quick access to analysis.
+### What's Missing
+- ❌ Aptos wallet integration (code ready, not deployed)
+- ❌ On-chain signal publishing (Move module ready, not deployed)
+- ❌ Reputation/incentive system
+- ❌ In-app trading (currently external links)
 
 ---
 
-## Detailed Design
+## Vision: Hybrid Architecture
 
-### `/ai` Page Requirements
+### The Model
+```
+┌─────────────────────────────────────────────────────────┐
+│                  User Experience                         │
+├─────────────────────────────────────────────────────────┤
+│                                                           │
+│  1. Browse markets (Polymarket, 9lives, etc.)            │
+│  2. Get weather + AI edge analysis                       │
+│  3. Trade on platform (MetaMask) → Build trading history │
+│  4. Publish signal (Petra) → Build reputation on Aptos   │
+│  5. Earn from reputation → Premium signals, referrals    │
+│                                                           │
+└─────────────────────────────────────────────────────────┘
 
-**Data Architecture:**
-
-- Source: Polymarket sports events only
-- Event metadata: `eventType`, `teams`, `eventLocation` (parsed from title/description)
-- Weather: Fetch for **event location**, not user location
-- Scoring: Weather at venue + current odds → edge score
-
-**UI Components:**
-
-- Header: "Event Weather Analysis" + "Analyzing [Sports Season]"
-- Market cards show:
-  - Event name + teams
-  - **Venue location** (e.g., "Arrowhead Stadium, Kansas City, MO")
-  - Game day forecast (temp, precipitation, wind, humidity)
-  - How weather impacts this team/sport
-  - Edge score + confidence
-- Filters:
-  - Sport type (NFL, NBA, Soccer, etc.)
-  - Team name
-  - Venue region (optional: USA, Europe, etc.)
-  - Days to event (7d, 14d, 30d)
-  - Confidence level (HIGH, MEDIUM, LOW)
-- Search: By team name, venue city, or event keywords
-
-**API Changes:**
-
-- `/api/markets` POST body:
-  - `eventType: 'Sports'` (hard-coded for /ai)
-  - `location: null` (don't use user location)
-  - `analysisType: 'event-weather'` (new parameter to tell backend: fetch event weather, not user weather)
-  - Other filters: `confidence`, `minVolume`, `maxDaysToResolution`
-
-**Backend Logic:**
-
-- In `polymarketService.getTopWeatherSensitiveMarkets()`:
-  - If `analysisType === 'event-weather'`:
-    - Extract event venue from market metadata
-    - Call `weatherService.getCurrentWeather(eventVenue)` for each market
-    - Use event weather for `assessMarketWeatherEdge()`
-  - Score by: event weather relevance + odds mismatch + volume
-  - Return sports markets only, ranked by edge score
+┌─────────────────────────────────────────────────────────┐
+│              Technical Architecture                       │
+├─────────────────────────────────────────────────────────┤
+│                                                           │
+│  Trading Layer (EVM - Read Only)                         │
+│  ├── Polymarket API (Polygon) - Fetch markets            │
+│  ├── 9lives API (Arbitrum) - Future                      │
+│  └── User trades with MetaMask (external/in-app)         │
+│                                                           │
+│  Intelligence Layer (Aptos - Write)                      │
+│  ├── Signal registry (Move smart contract)               │
+│  ├── Reputation system (on-chain)                        │
+│  ├── Accuracy tracking (verifiable)                      │
+│  └── Monetization (premium signals, referrals)           │
+│                                                           │
+│  Application (Bridge)                                     │
+│  ├── Fetch markets (no wallet needed)                    │
+│  ├── Analyze with weather + AI                           │
+│  ├── Display to user                                     │
+│  └── Dual wallet UX (MetaMask + Petra)                   │
+│                                                           │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
-### `/discovery` Page Requirements
+## Phase 8: Aptos Integration + Incentive System
 
-**Data Architecture:**
+**Goal:** Deploy Move module, integrate dual wallets, establish reputation system
 
-- Source: All Polymarket categories globally
-- Event metadata: Not required (works on any market)
-- Weather: User location only (for UI theming, not analysis)
-- Scoring: Volume, liquidity, volatility (weather is optional edge signal)
+### Week 1: Aptos Deployment
 
-**UI Components:**
+**Tasks:**
+1. Deploy Move module to devnet
+2. Add AptosProvider to layout.js
+3. Update Markets page with dual wallet UX
+4. Test signal publishing end-to-end
+5. Verify on Aptos Explorer
 
-- Header: "Market Discovery" + stats (total markets, trending)
-- Market cards show:
-  - Market title
-  - Category badge
-  - 24h volume + volume trend
-  - Liquidity
-  - Edge score (if weather edge exists, show it; otherwise show neutral)
-- Filters:
-  - Category dropdown (Sports, Politics, Crypto, Finance, etc.)
-  - Minimum volume ($10k, $50k, $100k+)
-  - Search by keywords
-- Search: Free-form (team names, keywords, market titles)
-- Analysis: Works on any market type (weather + general market factors)
+**Files:**
+- ✅ `/move/sources/signal_registry.move` - Ready
+- ✅ `/services/aptosPublisher.js` - Ready
+- ✅ `/hooks/useAptosSignalPublisher.js` - Ready
+- ✅ `/app/providers/AptosProvider.js` - Ready
+- ✅ `/app/components/AptosConnectButton.js` - Ready
+- 🔄 `/app/layout.js` - Add AptosProvider
+- 🔄 `/app/markets/page.js` - Add Aptos wallet button + publishing
 
-**API Changes:**
+**Success Metrics:**
+- [ ] Module deployed to devnet
+- [ ] 10+ test signals published on-chain
+- [ ] tx_hash displayed in Signals page
+- [ ] Events visible in Aptos Explorer
 
-- `/api/markets` POST body:
-  - `eventType: 'all'` (default)
-  - `location: null` (user location not used)
-  - `analysisType: 'discovery'` (or omit, use as default)
-  - Other filters: `confidence`, `minVolume`, `category`, `searchText`
+### Week 2-3: Dual Wallet UX
 
-**Backend Logic:**
+**User Flow:**
+```
+1. User visits /markets
+2. Sees two wallet buttons:
+   ┌─────────────────────────────────────┐
+   │ 🦊 Connect MetaMask (Trading)       │
+   │ 🟣 Connect Petra (Signals)          │
+   └─────────────────────────────────────┘
 
-- In `polymarketService.getTopWeatherSensitiveMarkets()`:
-  - If `analysisType === 'discovery'` or not specified:
-    - Ignore user weather
-    - Score by: volume, liquidity, volatility, market efficiency
-    - Return all markets, ranked by volume/liquidity (not weather)
-  - Weather edge is computed but is secondary ranking signal
-  - Return top markets regardless of weather sensitivity
+3. Analyzes market → sees edge
+4. Options:
+   - "Trade on Polymarket" → Opens Polymarket (uses MetaMask)
+   - "Publish Signal" → Petra signs → Aptos transaction
+```
 
----
+**Implementation:**
+```javascript
+// Header component
+<div className="flex items-center space-x-4">
+  <PageNav currentPage="Markets" isNight={isNight} />
+  
+  {/* Trading wallet */}
+  <div className="flex flex-col items-center">
+    <ConnectKitButton mode={isNight ? "dark" : "light"} />
+    <span className="text-xs opacity-60 mt-1">Trading</span>
+  </div>
+  
+  {/* Signals wallet */}
+  <div className="flex flex-col items-center">
+    <AptosConnectButton isNight={isNight} />
+    <span className="text-xs opacity-60 mt-1">Signals</span>
+  </div>
+</div>
 
-## Implementation Phases
-
-### Phase 1: Backend Refactoring (Days 1-2)
-
-**Goal:** Enable event weather fetching and location-agnostic discovery.
-
-**Files to Modify:**
-
-1. **`services/polymarketService.js`**
-
-   - Update `getTopWeatherSensitiveMarkets()` signature to accept `analysisType` param
-   - Add logic:
-     ```javascript
-     if (analysisType === "event-weather") {
-       // For /ai: Fetch weather at event location
-       const eventLocation = extractVenueFromMarket(market);
-       const eventWeather = await weatherService.getCurrentWeather(
-         eventLocation
-       );
-       edgeScore = assessMarketWeatherEdge(market, eventWeather);
-     } else {
-       // For /discovery: Use volume/liquidity scoring
-       edgeScore = assessMarketEfficiency(market);
-     }
-     ```
-   - Add helper: `extractVenueFromMarket(market)` to pull venue from title/teams/parsed data
-   - Modify `assessMarketWeatherEdge()` to accept event weather (not just user weather)
-
-2. **`app/api/markets/route.js`**
-   - Accept `analysisType` parameter from client
-   - Pass to `polymarketService.getTopWeatherSensitiveMarkets(limit, { ...filters, analysisType })`
-   - No other logic changes needed
-
-**Testing:**
-
-- Verify `/api/markets` with `analysisType: 'event-weather'` returns sports markets with venue weather
-- Verify `/api/markets` with `analysisType: 'discovery'` returns all markets, ranked by volume
-
----
-
-### Phase 2: `/ai` Page Refactor (Days 2-3)
-
-**Goal:** Convert /ai from user-location-based to event-location-based.
-
-**Files to Modify:**
-
-1. **`app/ai/page.js`**
-
-   - Remove: User location geolocation step (lines 168-171)
-   - Remove: `currentLocation` state
-   - Add: Pass `analysisType: 'event-weather'` to `/api/markets` API call (line 195-210)
-   - Update header:
-     - Remove: "Weather Edge Analysis" + "in {currentLocation}"
-     - Add: "Event Weather Analysis"
-   - Update market card display:
-     - Show `market.eventLocation` or extracted venue
-     - Show event weather forecast (from analysis response)
-   - Update filters:
-     - Change "Search Markets" to "Search Events"
-     - Add sport type filter: Football, Basketball, Soccer, etc.
-     - Optional: Venue region filter (USA, Europe, etc.)
-     - Keep: Confidence, Volume, Days to resolution
-   - Remove: "Futures" toggle (focus on sports events only)
-
-2. **`app/ai/components/` (if needed)**
-   - May need to tweak market selector to display venue + event weather
-   - Otherwise components can stay as-is
-
-**Testing:**
-
-- Navigate to /ai
-- Verify: No geolocation prompt, no "Weather at your location" message
-- Verify: Markets show venue location + game-day weather
-- Verify: Search by team name works
-- Verify: Filters (sport type, confidence) work
+// Publish signal flow
+const handlePublishSignal = async () => {
+  // 1. Save to SQLite (fast)
+  const sqliteResult = await saveTosqlite({
+    authorAddress: evmAddress, // MetaMask address for tracking
+  });
+  
+  // 2. Publish to Aptos (if connected)
+  if (aptosConnected) {
+    const txHash = await publishToAptos(signalData);
+    if (txHash) {
+      await updateTxHash(sqliteResult.id, txHash);
+      // Link EVM address to Aptos address
+      await linkAddresses(evmAddress, aptosAddress);
+    }
+  }
+};
+```
 
 ---
 
-### Phase 3: `/discovery` Page Simplification (Days 3-4)
+## Incentive System: Why Publish Signals?
 
-**Goal:** Position discovery as general market browser, not weather-focused.
+### The Problem
+**Users ask:** "Why should I publish my edge on-chain?"
 
-**Files to Modify:**
+### The Solution: Multi-Layered Incentives
 
-1. **`app/discovery/page.js`**
+#### 1. **Reputation & Clout** (Social Capital)
 
-   - Remove: User weather loading (lines 43-79) or keep only for UI theming
-   - Update header:
-     - Change: "Weather-Sensitive Edges" to "Market Discovery"
-     - Update subtitle: "Browse prediction markets globally"
-   - Remove from API call: `weatherData` parameter (line 177-178)
-   - Add: `analysisType: 'discovery'` to API call
-   - Update market cards:
-     - Focus on: Market title, category, volume, liquidity
-     - De-emphasize: Edge score (show if present, but not primary)
-   - Keep filters: Category, Volume, Search
-   - Remove: Location-based search (change "Search by location" to "Search markets")
-   - Keep analysis: Same analysis flow works for all markets
+**On-Chain Reputation Score:**
+```
+Reputation = (Accuracy × Volume × Consistency) + Bonus Multipliers
 
-2. **No backend changes needed** — already handles this
+Components:
+- Accuracy: % of signals that were correct
+- Volume: Number of signals published
+- Consistency: Publishing frequency over time
+- Bonuses: Early adopter, high-stakes signals, etc.
+```
 
-**Testing:**
+**Leaderboard:**
+```
+┌─────────────────────────────────────────────────────────┐
+│  Top Signal Publishers (Last 30 Days)                   │
+├─────────────────────────────────────────────────────────┤
+│  1. 0x1234... - 87% accuracy, 45 signals, 🏆 Rank: S    │
+│  2. 0x5678... - 82% accuracy, 38 signals, 🥈 Rank: A    │
+│  3. 0x9abc... - 79% accuracy, 52 signals, 🥉 Rank: A    │
+└─────────────────────────────────────────────────────────┘
+```
 
-- Navigate to /discovery
-- Verify: Markets load regardless of user location
-- Verify: Search is free-form (works on any keyword)
-- Verify: Category/volume filters work
-- Verify: Analysis still works on any market
-- Verify: No empty states (plenty of markets always shown)
+**Profile Page:**
+```
+┌─────────────────────────────────────────────────────────┐
+│  @weatherking (0x1234...)                               │
+│  🏆 S-Tier Signal Publisher                             │
+├─────────────────────────────────────────────────────────┤
+│  Stats:                                                  │
+│  • 87% accuracy (industry avg: 52%)                     │
+│  • 45 signals published                                 │
+│  • $127K in follower profits                            │
+│  • 234 copy traders                                     │
+│                                                          │
+│  Specialties: NFL weather edges, Soccer rain games      │
+│  Best Signal: Chiefs @ Bills snow game (+42% ROI)       │
+│                                                          │
+│  [Follow] [Copy Trade] [View Signals]                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 2. **Copy Trading** (Direct Monetization)
+
+**Model:**
+```
+User publishes signal → Others copy trade → User earns % of profits
+
+Example:
+- User publishes: "Chiefs +3.5 (weather edge)"
+- 50 people copy trade $100 each = $5,000 total
+- Average profit: 20% = $1,000 total profit
+- User earns: 10% of profits = $100
+```
+
+**Implementation:**
+```javascript
+// Signal with copy trading
+{
+  signal_id: "...",
+  author: "0x1234...",
+  copy_traders: 50,
+  total_volume: "$5,000",
+  avg_roi: "20%",
+  author_earnings: "$100"
+}
+```
+
+**UX:**
+```
+┌─────────────────────────────────────────────────────────┐
+│  Signal: Chiefs +3.5 (Snow Game Edge)                   │
+│  By: @weatherking (87% accuracy)                        │
+├─────────────────────────────────────────────────────────┤
+│  Analysis: Heavy snow expected, Chiefs excel in snow... │
+│                                                          │
+│  50 traders copied this signal                          │
+│  Average ROI: +20%                                      │
+│                                                          │
+│  [Copy This Signal] [Follow Publisher]                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 3. **Referral Program** (Network Effects)
+
+**Model:**
+```
+User refers friends to Polymarket/9lives → Earns % of trading fees
+
+Tiers:
+- Bronze: 5% of referral trading fees (0-10 referrals)
+- Silver: 10% of referral trading fees (11-50 referrals)
+- Gold: 15% of referral trading fees (51+ referrals)
+```
+
+**Integration:**
+```javascript
+// Link in signal
+{
+  signal: "...",
+  trade_link: "https://polymarket.com/market/xyz?ref=0x1234",
+  referral_code: "WEATHERKING"
+}
+```
+
+**UX:**
+```
+┌─────────────────────────────────────────────────────────┐
+│  Your Referral Stats                                    │
+├─────────────────────────────────────────────────────────┤
+│  • 23 active referrals                                  │
+│  • $45K in referral trading volume                      │
+│  • $450 earned this month (10% tier)                    │
+│                                                          │
+│  Your referral link:                                    │
+│  fourcast.app/r/weatherking                             │
+│                                                          │
+│  Share your signals → Build your network → Earn passive │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 4. **Premium Signals** (Subscription)
+
+**Model:**
+```
+Free Tier:
+- Basic analysis
+- Public signals
+- Standard AI model
+
+Premium Tier ($20/month):
+- Deep analysis
+- Early signal access (1 hour before public)
+- Advanced AI model
+- Historical accuracy data
+- Copy trading enabled
+
+Pro Tier ($100/month):
+- All premium features
+- API access
+- Custom alerts
+- Priority support
+- Exclusive signals from top publishers
+```
+
+**Publisher Revenue Share:**
+```
+Premium subscriber pays $20/month
+→ $10 to platform
+→ $10 split among publishers they follow
+
+Example:
+- User follows 5 publishers
+- Each publisher earns $2/month per subscriber
+- Publisher with 100 premium followers = $200/month passive
+```
+
+#### 5. **Gamification** (Engagement)
+
+**Achievements:**
+```
+🏆 First Signal - Publish your first signal
+🎯 Sharp Shooter - 10 signals with >70% accuracy
+🔥 Hot Streak - 5 correct signals in a row
+⚡ Speed Demon - Publish within 1 hour of market opening
+🌟 Influencer - 100+ copy traders
+💎 Diamond Hands - 50+ signals published
+```
+
+**Seasons & Competitions:**
+```
+Monthly Competitions:
+- Top accuracy wins $500
+- Most profitable signals wins $300
+- Most copy traders wins $200
+
+Seasonal Leaderboards:
+- NFL Season Champion
+- March Madness Master
+- World Cup Weather Wizard
+```
 
 ---
 
-### Phase 4: Venue Extraction & Weather Service (Days 4-5)
+## Phase 9: In-App Trading (Optional)
 
-**Goal:** Reliably extract event venues and fetch weather for them.
+**Goal:** Enable trading without leaving the app
 
-**Files to Create/Modify:**
+### Integration Options
 
-1. **`services/venueExtractor.js`** (NEW)
+**Option 1: Polymarket SDK (Easiest)**
+```javascript
+import { PolymarketSDK } from '@polymarket/sdk';
 
-   ```javascript
-   export class VenueExtractor {
-     static extractFromMarket(market) {
-       // Try multiple sources in order:
-       // 1. market.eventLocation (if populated)
-       // 2. Parse from market.title (e.g., "NFL @ Miami" → Miami)
-       // 3. Use market.teams with team-city mapping
-       // 4. Default to null
-       return venue;
-     }
-   }
-   ```
+// In Markets page
+const sdk = new PolymarketSDK();
 
-2. **`services/polymarketService.js`**
+const handleTrade = async (market, side, amount) => {
+  const order = await sdk.createOrder({
+    market: market.id,
+    side, // YES or NO
+    amount,
+  });
+  
+  // User signs with MetaMask
+  const signature = await signer.signTypedData(order);
+  await sdk.submitOrder(order, signature);
+};
+```
 
-   - Update `buildMarketCatalog()` to populate `market.eventLocation` during parsing
-   - Reference existing code at lines 1129-1303 for team/event extraction
+**Option 2: Deep Links (Simpler)**
+```javascript
+// Pre-fill trade on Polymarket
+const tradeUrl = `https://polymarket.com/market/${market.id}?side=YES&amount=100`;
+window.open(tradeUrl, '_blank');
+```
 
-3. **`services/weatherService.js`**
-   - Verify caching is robust (don't re-fetch same location repeatedly)
-   - Consider rate limiting for multiple concurrent requests
-
-**Testing:**
-
-- Verify venue extraction works for 10 sample markets
-- Verify weather fetches correctly for extracted venues
-- Verify caching prevents redundant API calls
+**Recommendation:** Start with Option 2 (deep links), upgrade to Option 1 later.
 
 ---
 
-### Phase 5: UI Polish & Copywriting (Days 5-6)
+## Phase 10: Multi-Market Support
 
-**Goal:** Make value propositions crystal clear.
+**Goal:** Support 9lives (Arbitrum), Azuro (Polygon), etc.
 
-**Changes:**
+### Abstraction Layer
 
-1. `/ai` page:
+```javascript
+// services/marketAdapter.js
+class MarketAdapter {
+  constructor(platform) {
+    this.platform = platform; // 'polymarket', '9lives', 'azuro'
+  }
+  
+  async getMarkets(filters) {
+    switch (this.platform) {
+      case 'polymarket':
+        return await PolymarketAPI.getMarkets(filters);
+      case '9lives':
+        return await NineLivesAPI.getMarkets(filters);
+      case 'azuro':
+        return await AzuroAPI.getMarkets(filters);
+    }
+  }
+  
+  async getTradingUrl(market) {
+    // Return platform-specific URL
+  }
+}
+```
 
-   - Add explanation: "Analyzing weather forecasts at upcoming event venues to find trading opportunities"
-   - Cards show: "Game in [Venue], Weather: [Details], Your Edge: [Explanation]"
-   - Button text: "Analyze This Match" (not generic "Analyze")
+### UX
 
-2. `/discovery` page:
-
-   - Add explanation: "Discover high-volume prediction markets across all categories. Deep-dive with AI analysis."
-   - Cards focus on: "This market has [volume/liquidity/trend]. Get AI insights."
-
-3. Navigation:
-
-   - PageNav clearly labels: "AI Weather Analysis" vs "Market Discovery"
-
-4. Help/Onboarding:
-   - /ai: "How It Works" → "Analyze event venues for weather-driven edges"
-   - /discovery: "How It Works" → "Find markets, deep-dive with AI, trade with confidence"
+```
+┌─────────────────────────────────────────────────────────┐
+│  Select Platform:                                        │
+│  [Polymarket] [9lives] [Azuro] [All]                    │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Success Metrics
 
-### /ai Page
+### Phase 8 (Aptos Integration)
+- [ ] 100+ signals on devnet
+- [ ] 50+ unique publishers
+- [ ] 99%+ transaction success rate
+- [ ] <$0.001 average gas cost
 
-- **No empty states** in normal conditions (>5 markets always shown)
-- **Venue accuracy** (>90% of cards show correct event location)
-- **Click-through** to analysis (>40% of market selections lead to analysis)
-- **User feedback** ("Finally can see weather for the actual game!")
+### Phase 9 (Incentives)
+- [ ] 500+ signals published
+- [ ] 100+ users with reputation scores
+- [ ] 20+ copy trading relationships
+- [ ] $1K+ in referral earnings distributed
 
-### /discovery Page
-
-- **Always populated** (never empty, hundreds of markets available)
-- **Search quality** (>80% of search results match user intent)
-- **Analysis speed** (standard analysis <10s, deep analysis <30s)
-- **Cross-page traffic** (users navigate between /ai and /discovery intentionally)
-
----
-
-## Rollback Plan
-
-If any phase introduces bugs:
-
-1. **Phase 1 (Backend):** Rollback polymarketService changes, revert to location-agnostic discovery
-2. **Phase 2 (/ai):** Revert to old page, keep backend changes
-3. **Phase 3 (/discovery):** Already backward-compatible, no harm in changes
-4. **Phase 4 (Venue):** Graceful degradation if extraction fails (fall back to null location)
-5. **Phase 5 (UI):** Pure cosmetic, always safe to undo
+### Phase 10 (Growth)
+- [ ] 1,000+ monthly active users
+- [ ] 5,000+ signals published
+- [ ] 50+ premium subscribers
+- [ ] $10K+ monthly revenue
 
 ---
 
-## Related Issues
+## Timeline
 
-- **Weather API rate limiting:** Monitor calls during Phase 4 (venue extraction = multiple weather calls)
-- **Market metadata quality:** Some markets may not have venue data—handle gracefully
-- **Team-to-city mapping:** `/ai` may need a reference table for sports teams if venue extraction fails
+**Week 1-2:** Aptos deployment + dual wallet UX  
+**Week 3-4:** Reputation system + leaderboard  
+**Month 2:** Copy trading + referral program  
+**Month 3:** Premium tiers + API access  
+**Month 4:** Multi-market support  
 
 ---
 
-## Next Steps
+## Revenue Model
 
-1. Review this roadmap with team
-2. Proceed to Phase 1: Backend refactoring
-3. Test each phase before moving to next
+### Revenue Streams
 
-## Implementation Status
+1. **Premium Subscriptions** - $20-100/month
+2. **Copy Trading Fees** - 10% of profits
+3. **Referral Commissions** - 5-15% of trading fees
+4. **API Access** - $50-500/month
+5. **Enterprise** - Custom pricing
 
-### ✅ Completed Phases
+### Projections (Month 6)
 
-**Phase 1: Backend Refactoring - COMPLETED**
-
-- Added `VenueExtractor` service with team-to-city mapping for NFL, NBA, EPL teams
-- Implemented `assessMarketEfficiency()` for discovery mode scoring
-- Modified `getTopWeatherSensitiveMarkets()` to accept `analysisType` parameter
-- Added event-weather analysis mode vs discovery mode logic
-
-**Phase 2: /ai Page Refactor - COMPLETED**
-
-- Removed user location geolocation requirement
-- Updated to pass `analysisType: 'event-weather'` to API
-- Now displays event venue locations from extracted data
-- Shows event weather forecast in analysis
-- Uses event location for validation, not user location
-
-**Phase 3: /discovery Page Simplification - COMPLETED**
-
-- Positioned as global market browser, not weather-focused
-- Passes `analysisType: 'discovery'` to API
-- Removed dependency on user location for filtering
-- Scores markets by efficiency (volume, liquidity, volatility)
-
-**Phase 4: Venue Extraction System - COMPLETED**
-
-- Built comprehensive `VenueExtractor` with stadium mapping
-- Added 80+ stadium-to-city mappings
-- Implemented team-to-city lookup for major sports
-- Handles international venues (e.g., "Liverpool, England")
-
-### Current Performance Metrics
-
-**Venue Extraction Success Rates:**
-
-- ✅ **SUCCESS:** 22% - Clear venue extraction (e.g., "Kansas City, MO")
-- ⚠️ **PARTIAL:** 53.5% - Extracted but needs improvement (e.g., "At Arrowhead")
-- ❌ **FAILED:** 24.2% - No venue found (non-location-specific markets)
-
-**Page Differentiation Results:**
-
-- `/ai` page: Shows sports events with venue weather analysis
-- `/discovery` page: Shows high-volume markets across all categories
-- Both pages now have distinct functionality and user experiences
-
-### Technical Implementation Details
-
-**New Service: `services/venueExtractor.js`**
-
-- Team-to-city mapping for 50+ major sports teams
-- Stadium-to-city mapping for 80+ venues
-- Title pattern matching for location extraction
-- Confidence scoring and validation
-
-**Modified: `services/polymarketService.js`**
-
-- Event-weather mode: Extracts venue, fetches weather at event location
-- Discovery mode: Scores by market efficiency, not weather
-- Graceful fallback when venue extraction fails
-
-**Updated API Endpoint: `app/api/markets/route.js`**
-
-- Accepts `analysisType` parameter
-- Passes through to service layer
-- Backward compatible with existing clients
-
-### Remaining Improvements
-
-**Phase 5: UI Polish & Copywriting (Optional)**
-
-- Enhance event location display on market cards
-- Improve filter UX for sports events vs general markets
-- Add explanatory text for each page's purpose
-
-**Venue Extraction Enhancements:**
-
-- Expand team mappings for international leagues
-- Improve stadium name normalization
-- Add confidence scoring for extracted venues
-- Pre-extract during catalog build for better performance
-
-## Recent Bug Fixes
-
-### Soccer Filter Zero Results Issue - FIXED ✅
-
-**Date:** November 2024  
-**Severity:** Critical - Blocking core functionality
-
-**Problem:**
-
-- Users selecting "Soccer" filter on sports page got 0 results
-- Same issue affected all sport-specific filters (NFL, NBA, etc.)
-- Root cause: Fetch logic bug in `buildMarketCatalog()`
-
-**Root Cause:**
-
-```javascript
-// BROKEN CODE:
-const fetchSports = eventTypeFilter === "Sports";
-if (!fetchSports) {
-  // Fetch markets...
-}
-// When fetchSports is true, nothing happens - allMarkets stays empty!
+```
+100 premium users × $20 = $2,000/month
+50 copy trading relationships × $50 avg = $2,500/month
+200 referrals × $10 avg = $2,000/month
+10 API users × $100 = $1,000/month
+────────────────────────────────────────
+Total: $7,500/month
 ```
 
-**Solution:**
-
-1. Fixed fetch logic to always fetch markets regardless of filter type
-2. Increased fetch limit from 100 to 200 events for better coverage
-3. Added comprehensive debug logging to track filtering issues
-4. Now properly filters client-side after fetching all markets
-
-**Files Modified:**
-
-- `services/polymarketService.js` - Fixed fetch logic, increased limit, added logging
-- `docs/SOCCER_FILTER_FIX.md` - Detailed documentation
-
-**Impact:** Core sports filtering functionality restored. Users can now filter by specific sports.
-
 ---
-
-## Updated Next Steps
-
-1. Monitor venue extraction accuracy in production
-2. Collect user feedback on /ai vs /discovery differentiation
-3. Verify Polymarket has sufficient soccer markets (may need to adjust filters if still getting 0 results)
-4. Implement Phase 5 UI polish if needed
-5. Consider expanding to international sports leagues
-6. Add more sophisticated market efficiency scoring
-
-**Deployment Status:** Ready for production deployment ✅
-**Documentation Status:** Integration complete ✅
-**Testing Status:** Build tests passing ✅
-**Bug Fixes:** Soccer filter issue resolved ✅
-
----
-
-## Phase 6: Signals Registry & Aptos Integration
-
-**Goal:** Publish compact, composable weather × odds × AI signal objects; prepare Aptos on-chain writer.
-
-**Changes:**
-
-1. Backend
-   - Add `/api/signals` endpoint: `POST` publish, `GET` list
-   - Persist Signals in SQLite for demo and offline caching
-   - Fields: `event_id`, `market_title`, `venue`, `event_time`, `market_snapshot_hash`, `weather_json`, `ai_digest`, `confidence`, `odds_efficiency`, `author_address`, `timestamp`
-2. Frontend
-   - Wire “Publish Signal” action in the Discovery analysis modal
-   - Add Vision page describing mission and benefits
-3. Aptos Plan
-   - Define minimal Move module schema for on-chain Signal Objects
-   - Emit events for indexing by `event_id` and `timestamp`
-
-**Files:**
-
-- `app/api/signals/route.js` (new)
-- `services/db.js` (signals table + helpers)
-- `app/discovery/page.js` (Publish Signal button)
-- `app/vision/page.js` (new informational page)
-
-**Testing:**
-
-- Verify `POST /api/signals` saves a signal and returns an `id`
-- Verify `GET /api/signals?limit=20` lists latest signals
-- Confirm Discovery modal shows “Publish Signal” and succeeds
-
-### Status
-
-- Signals API and local persistence: completed
-- Vision page: completed
-- Aptos writer and wallet identity: planned
-
----
-
-## Hackathon Plan (Aptos x SMU – Move the Future)
-
-**Target Tracks:** Best Data Economy / AI + Web3; optional RWA and Social Impact.
-
-**Judging Criteria Focus:**
-
-- Innovation & originality (30%): Canonical signals for weather-aware prediction intelligence.
-- Technical execution (25%): Clean Signal schema, writer service, Move module and events.
-- Relevance & scalability (20%): Aptos-native composable data; indexer-friendly.
-- Real-world impact (15%): Traders/builders consume signals; premium insights via gating.
-- Demo quality (10%): Smooth UX from analyze → publish → discover.
-
-**Timeline Alignment:**
-
-- Build phase (~14 days): finalize schema, venue enrichment, signals API, Aptos writer.
-- Submission: repo + demo video + deck; shortlist and refinement windows.
-
-**Deliverables:**
-
-- Working demo of analyzing a market and publishing a Signal
-- Signals listing and per-event timeline
-- Draft Move module spec and devnet proof-of-concept writer
-
----
-
-## Phase 7: Navigation Consolidation (Markets + Signals)
-
-**Goal:** Reduce header clutter and clarify core flows by combining Sports and Discovery into a single `Markets` page, and introducing a dedicated `Signals` page.
-
-**Rationale:** Users currently decide between two similar entry points. A single `Markets` surface with an in‑page toggle improves intent clarity (events vs. global) and reduces cognitive load, while a separate `Signals` page foregrounds the data product.
-
-**Navigation Model:**
-
-- Header shows three items: `Weather`, `Markets`, `Signals`
-- `Vision` remains at `/vision` but is linked contextually (homepage hero, Discovery header) and in the footer
-
-**Markets Page (Combined):**
-
-- Segmented control at top:
-  - "Sports (Event Weather)": venue‑aware analysis, event forecasts, weather impact
-  - "All Markets (Discovery)": global browser, category/volume filters, general analysis
-- Shared components: market cards, analysis modal, validations, "Publish Signal" action
-- Data: pass `analysisType` (`event-weather` | `discovery`) to backend; reuse existing services
-
-**Signals Page:**
-
-- List latest signals via `GET /api/signals?limit=20`
-- Filters: `event_id`, `confidence`, `odds_efficiency`
-- Per‑event timeline (history, accuracy as registry grows)
-- Surface `tx_hash` when Aptos writer is live
-
-**Files to Modify/Create:**
-
-- `app/components/PageNav.js`: set minimal header items (`Weather`, `Markets`, `Signals`)
-- `app/markets/page.js` (new): combined tabs reusing logic from `app/sports/page.js` and `app/discovery/page.js`
-- `app/signals/page.js` (new): registry UI with filters and timelines
-- Keep `/vision` accessible but not in primary header
-
-**Backend/Services:**
-
-- Continue to use `polymarketService.getTopWeatherSensitiveMarkets()` with `analysisType`
-- Maintain `/api/analyze` and `/api/analyze/stream` for responsive analysis UX
-- Signals registry unchanged (`POST /api/signals`, `GET /api/signals`)
-
-**Testing:**
-
-- Toggle between tabs verifies `analysisType` behavior and data loading
-- Publish works from both tabs; signals appear in Vision and Signals pages
-- Header shows exactly three items; secondary discovery of Vision via contextual links
-
-**Success Metrics:**
-
-- Header reduced to ≤3 primary items
-- Increased click‑through to analysis from Markets page
-- Signal publish success rate ≥90% during demo runs
-
-**Timeline:** 2–3 days for consolidation and scaffolding
-
-**Rollback Plan:**
-
-- If consolidation confuses users, keep `/sports` and `/discovery` as separate routes and add lightweight cross‑links; maintain combined `Markets` as an optional entry point
-
----
-
-### ✅ Phase 7 Implementation Status: COMPLETED
-
-**Date Completed:** November 22, 2024
-
-**Implementation Summary:**
-
-Following core principles (ENHANCEMENT FIRST, AGGRESSIVE CONSOLIDATION, DRY, MODULAR, CLEAN):
-
-1. **Created `/app/markets/page.js`** - Consolidated Markets page with tabbed interface
-   - Sports tab: Reuses sports page logic with `analysisType: 'event-weather'`
-   - Discovery tab: Reuses discovery page logic with `analysisType: 'discovery'`
-   - Shared components: MarketCard, analysis modal, publish signal action
-   - Tab state management with proper filter isolation
-
-2. **Created `/app/signals/page.js`** - Dedicated Signals registry
-   - Lists signals via `GET /api/signals?limit=50`
-   - Filters: event_id, confidence, odds_efficiency
-   - Per-event timeline view with grouped signals
-   - Ready for tx_hash display when Aptos writer goes live
-   - Stats dashboard showing total signals, unique events, filtered results
-
-3. **Updated `/app/components/PageNav.js`** - Minimal header navigation
-   - Reduced from 3 items (Fourcast, Sports, Discovery) to 3 new items (Weather, Markets, Signals)
-   - Clean, focused navigation matching Phase 7 spec
-
-4. **Updated `/app/WeatherPage.js`** - Homepage navigation links
-   - Updated floating nav to link to `/markets` and `/signals` instead of old routes
-   - Maintains consistent UX across all pages
-
-**Core Principles Adherence:**
-
-✅ **ENHANCEMENT FIRST**: Enhanced existing sports/discovery pages by consolidating into Markets  
-✅ **AGGRESSIVE CONSOLIDATION**: Old `/sports` and `/discovery` routes remain for backward compatibility but are deprecated in navigation  
-✅ **DRY**: Reused all existing components, services, and API logic - zero duplication  
-✅ **MODULAR**: Created reusable SportsTabContent, DiscoveryTabContent, and MarketCard components  
-✅ **CLEAN**: Clear separation of concerns between Sports (event-weather) and Discovery modes  
-✅ **PERFORMANT**: Shared state management, memoized filters, efficient re-renders  
-✅ **ORGANIZED**: Predictable structure with `/markets` and `/signals` as primary routes
-
-**Build Status:** ✅ Production build passing
-
-**Routes Created:**
-- `/markets` - Combined Sports + Discovery with tabbed interface
-- `/signals` - Signal registry with filters and timelines
-
-**Routes Deprecated (still accessible but not in nav):**
-- `/sports` - Superseded by Markets > Sports tab
-- `/discovery` - Superseded by Markets > Discovery tab
-
-**Success Metrics Achieved:**
-
-✅ Header reduced to exactly 3 primary items (Weather, Markets, Signals)  
-✅ Vision page accessible at `/vision` but not cluttering primary nav  
-✅ Publish Signal action integrated in both Sports and Discovery tabs  
-✅ Signals page ready for Aptos on-chain integration  
-✅ Zero breaking changes to backend services or APIs  
-✅ Full backward compatibility maintained
-
-**Next Steps:**
-
-- Monitor user engagement with new Markets page tabs
-- Collect feedback on Signals page UX
-- Prepare for Aptos writer integration (tx_hash display ready)
-- Consider deprecating `/sports` and `/discovery` routes entirely after user validation
-

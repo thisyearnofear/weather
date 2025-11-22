@@ -232,3 +232,58 @@ For setup issues:
 ---
 
 *Last updated: November 2024*
+---
+
+## Aptos Blockchain Integration
+
+### Prerequisites
+
+1. **Install Aptos CLI**
+   ```bash
+   brew install aptos
+   ```
+
+2. **Create Aptos Account**
+   ```bash
+   aptos init --network devnet
+   ```
+
+### Deploy Move Module
+
+```bash
+cd move
+aptos move compile --named-addresses fourcast_addr=default
+aptos move publish --named-addresses fourcast_addr=default
+```
+
+Save your module address from the output!
+
+### Configure Frontend
+
+Add to `.env.local`:
+```bash
+NEXT_PUBLIC_APTOS_NODE_URL=https://fullnode.devnet.aptoslabs.com/v1
+NEXT_PUBLIC_APTOS_MODULE_ADDRESS=0xYOUR_ADDRESS_HERE
+```
+
+### Install Petra Wallet
+
+1. Install extension: https://petra.app
+2. Create wallet
+3. Switch to Devnet network
+4. Fund with faucet: `aptos account fund-with-faucet --account YOUR_ADDRESS`
+
+### Test
+
+1. Start dev server: `npm run dev -- --turbopack`
+2. Visit `/markets`
+3. Connect Aptos wallet
+4. Publish a signal
+5. Verify on Aptos Explorer
+
+### Resources
+
+- Aptos Docs: https://aptos.dev
+- Petra Wallet: https://petra.app
+- Aptos Explorer: https://explorer.aptoslabs.com
+
