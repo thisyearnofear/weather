@@ -52,6 +52,26 @@ db.exec(`
     loss_count INTEGER DEFAULT 0,
     updated_at INTEGER DEFAULT (strftime('%s', 'now'))
   );
+
+  CREATE TABLE IF NOT EXISTS signals (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    market_title TEXT,
+    venue TEXT,
+    event_time INTEGER,
+    market_snapshot_hash TEXT,
+    weather_json TEXT,
+    ai_digest TEXT,
+    confidence TEXT,
+    odds_efficiency TEXT,
+    author_address TEXT,
+    tx_hash TEXT,
+    timestamp INTEGER NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_signals_event_id ON signals(event_id);
+  CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(timestamp DESC);
 `);
 
 // Prepared statements for performance
@@ -104,6 +124,27 @@ const statements = {
     FROM predictions p
     LEFT JOIN market_outcomes m ON p.market_id = m.market_id
     ORDER BY p.timestamp DESC
+    LIMIT ?
+  `),
+
+  insertSignal: db.prepare(`
+    INSERT INTO signals (
+      id, event_id, market_title, venue, event_time, market_snapshot_hash,
+      weather_json, ai_digest, confidence, odds_efficiency, author_address,
+      tx_hash, timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
+
+  getLatestSignals: db.prepare(`
+    SELECT * FROM signals
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `),
+
+  getSignalsByEventId: db.prepare(`
+    SELECT * FROM signals
+    WHERE event_id = ?
+    ORDER BY timestamp DESC
     LIMIT ?
   `),
 };
@@ -225,6 +266,47 @@ export function getRecentPredictions(limit = 20) {
   } catch (error) {
     console.error('Failed to get recent predictions:', error);
     return { success: false, error: error.message, predictions: [] };
+  }
+}
+
+export function saveSignal(signal) {
+  try {
+    statements.insertSignal.run(
+      signal.id,
+      signal.event_id,
+      signal.market_title || null,
+      signal.venue || null,
+      signal.event_time || null,
+      signal.market_snapshot_hash || null,
+      signal.weather_json ? JSON.stringify(signal.weather_json) : null,
+      signal.ai_digest || null,
+      signal.confidence || null,
+      signal.odds_efficiency || null,
+      signal.author_address ? signal.author_address.toLowerCase() : null,
+      signal.tx_hash || null,
+      signal.timestamp
+    );
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+export function getLatestSignals(limit = 20) {
+  try {
+    const rows = statements.getLatestSignals.all(limit);
+    return { success: true, signals: rows };
+  } catch (error) {
+    return { success: false, error: error.message, signals: [] };
+  }
+}
+
+export function getSignalsByEvent(eventId, limit = 50) {
+  try {
+    const rows = statements.getSignalsByEventId.all(eventId, limit);
+    return { success: true, signals: rows };
+  } catch (error) {
+    return { success: false, error: error.message, signals: [] };
   }
 }
 

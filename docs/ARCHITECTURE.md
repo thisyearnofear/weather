@@ -126,6 +126,8 @@ GET  /api/markets          # Market listings
 POST /api/analyze          # AI analysis
 POST /api/orders           # Trading orders
 GET  /api/predictions      # User predictions
+POST /api/signals          # Publish signal
+GET  /api/signals          # List latest signals
 ```
 
 **Validation Endpoints:**
@@ -217,6 +219,25 @@ Venice AI → AnalysisService → Cache → Frontend
   analysis: "Detailed AI analysis...",
   key_factors: ["Factor 1", "Factor 2"],
   recommended_action: "BET YES - Weather edge identified"
+}
+```
+
+**Signal Object (Off-chain demo model):**
+```javascript
+{
+  id: "eventId-timestamp",
+  event_id: "market.tokenID",
+  market_title: "Title",
+  venue: "City, Region",
+  event_time: 1732300000,
+  market_snapshot_hash: "sha256(...)",
+  weather_json: { /* compact weather metrics */ },
+  ai_digest: "Concise reasoning",
+  confidence: "HIGH|MEDIUM|LOW",
+  odds_efficiency: "INEFFICIENT|EFFICIENT",
+  author_address: "0x...",
+  tx_hash: null,
+  timestamp: 1732300100
 }
 ```
 
@@ -567,5 +588,51 @@ All Markets → Score by Volume/Liquidity/Volatility → Rank & Return
 - Documentation updated
 
 ---
+
+## Signals Registry Architecture
+
+**Purpose**
+- Publish compact, composable “Signal” records combining event odds, venue weather, and AI inference.
+
+**API**
+- `POST /api/signals` – publish a signal from analysis context
+- `GET /api/signals?limit=20` – list latest signals for demo and UI
+
+**Storage (Demo)**
+- SQLite table `signals` with indices on `event_id` and `timestamp`
+
+**Data Contracts**
+- See “Signal Object” in Data Architecture for field definitions
+
+**Pipeline**
+- Discovery/Sports → Analyze → Publish Signal → List Signals → Compose downstream tools
+
+---
+
+## Aptos Integration Design
+
+**Goal**
+- On-chain Signal Objects in Move, event emissions for indexers, devnet writer service.
+
+**Move Object Fields**
+- `event_id: vector<u8>`
+- `venue: vector<u8>`
+- `event_time: u64`
+- `snapshot_hash: vector<u8>`
+- `confidence: u8`
+- `odds_efficiency: u8`
+- `version: u8`
+
+**Events**
+- `SignalPublished { event_id, timestamp }` emitted to support queries
+
+**Writer Service**
+- Node service signs and submits transactions; dedup via `snapshot_hash`
+
+**Identity**
+- Aptos wallet adapters for author attribution and future premium gating
+
+**Evolution**
+- Start with minimal fields; extend via versioning and off-chain enrichments
 
 *Architecture Guide - Last updated: November 2024*

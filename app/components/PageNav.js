@@ -1,20 +1,22 @@
-'use client';
+"use client";
 
 export default function PageNav({ currentPage, isNight }) {
-  const textColor = isNight ? 'text-white' : 'text-black';
-  const bgClass = isNight ? 'bg-white/10 border-white/20' : 'bg-black/10 border-black/20';
-  
+  const textColor = isNight ? "text-white" : "text-black";
+  const bgClass = isNight
+    ? "bg-white/10 border-white/20"
+    : "bg-black/10 border-black/20";
+
   const pages = [
-    { name: 'Fourcast', href: '/', label: '🌤️' },
-    { name: 'Sports', href: '/sports', label: '⚽' },
-    { name: 'Discovery', href: '/discovery', label: '🔍' }
+    { name: "Weather", href: "/", label: "🌤️" },
+    { name: "Markets", href: "/markets", label: "📊" },
+    { name: "Signals", href: "/signals", label: "📡" },
   ];
-  
-  const otherPages = pages.filter(page => page.name !== currentPage);
+
+  const otherPages = pages.filter((page) => page.name !== currentPage);
 
   return (
     <div className="flex items-center space-x-2">
-      {otherPages.map(page => (
+      {otherPages.map((page) => (
         <a
           key={page.name}
           href={page.href}
