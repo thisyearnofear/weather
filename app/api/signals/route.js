@@ -1,4 +1,4 @@
-import { saveSignal, getLatestSignals } from '@/services/db.js'
+import { saveSignal, getLatestSignals, updateSignalTxHash } from '@/services/db.js'
 import { createHash } from 'crypto'
 
 export async function POST(request) {
@@ -72,6 +72,26 @@ export async function GET(request) {
       return Response.json({ success: false, error: res.error }, { status: 500 })
     }
     return Response.json({ success: true, signals: res.signals })
+  } catch (error) {
+    return Response.json({ success: false, error: error.message }, { status: 500 })
+  }
+}
+
+export async function PATCH(request) {
+  try {
+    const body = await request.json()
+    const { id, tx_hash } = body
+
+    if (!id || !tx_hash) {
+      return Response.json({ success: false, error: 'missing id or tx_hash' }, { status: 400 })
+    }
+
+    const res = updateSignalTxHash(id, tx_hash)
+    if (!res.success) {
+      return Response.json({ success: false, error: res.error }, { status: 500 })
+    }
+
+    return Response.json({ success: true })
   } catch (error) {
     return Response.json({ success: false, error: error.message }, { status: 500 })
   }

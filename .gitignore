@@ -44,3 +44,13 @@ next-env.d.ts
 fourcast.db
 fourcast.db-shm
 fourcast.db-wal
+
+# Aptos CLI
+.aptos/
+move/build/
+
+# IDE and tool artifacts
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -3,12 +3,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectKitButton } from 'connectkit';
+import AptosConnectButton from '@/app/components/AptosConnectButton';
+import { useAptosSignalPublisher } from '@/hooks/useAptosSignalPublisher';
 import { weatherService } from '@/services/weatherService';
 import PageNav from '@/app/components/PageNav';
 import Scene3D from '@/components/Scene3D';
 
 export default function MarketsPage() {
     const { address, isConnected } = useAccount();
+    const { publishToAptos, isPublishing, publishError, connected: aptosConnected } = useAptosSignalPublisher();
 
     // Tab state: 'sports' or 'discovery'
     const [activeTab, setActiveTab] = useState('sports');
@@ -207,6 +210,7 @@ export default function MarketsPage() {
         if (!selectedMarket || !analysis) return;
 
         try {
+            // 1. Save to SQLite first (fast feedback)
             const response = await fetch('/api/signals', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -219,10 +223,45 @@ export default function MarketsPage() {
             });
 
             const result = await response.json();
-            if (result.success) {
-                alert('Signal published successfully!');
+
+            if (!result.success) {
+                alert('Failed to save signal: ' + result.error);
+                return;
+            }
+
+            // 2. Publish to Aptos (if wallet connected)
+            if (aptosConnected) {
+                const signalData = {
+                    event_id: selectedMarket.marketID || selectedMarket.id,
+                    market_title: selectedMarket.title || selectedMarket.question,
+                    venue: selectedMarket.location || selectedMarket.eventLocation || '',
+                    event_time: selectedMarket.resolutionDate ? new Date(selectedMarket.resolutionDate).getTime() / 1000 : 0,
+                    market_snapshot_hash: result.id, // Using SQLite ID as snapshot hash for now
+                    weather_json: weatherData,
+                    ai_digest: analysis.reasoning || analysis.analysis || '',
+                    confidence: analysis.assessment?.confidence || 'UNKNOWN',
+                    odds_efficiency: analysis.assessment?.odds_efficiency || 'UNKNOWN',
+                };
+
+                const txHash = await publishToAptos(signalData);
+
+                if (txHash) {
+                    // Update SQLite with tx_hash
+                    await fetch('/api/signals', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id: result.id,
+                            tx_hash: txHash
+                        })
+                    });
+
+                    alert(`Signal published!\nSQLite ID: ${result.id}\nAptos TX: ${txHash}`);
+                } else {
+                    alert(`Signal saved locally (ID: ${result.id})\nAptos publish failed: ${publishError || 'Unknown error'}`);
+                }
             } else {
-                alert('Failed to publish signal: ' + result.error);
+                alert(`Signal saved locally (ID: ${result.id})\nConnect Aptos wallet to publish on-chain`);
             }
         } catch (err) {
             console.error('Failed to publish signal:', err);
@@ -284,7 +323,16 @@ export default function MarketsPage() {
                                     <option value="deep">Deep (Research)</option>
                                 </select>
                             </div>
-                            <ConnectKitButton mode={isNight ? "dark" : "light"} />
+                            <div className="flex items-center space-x-2">
+                                <div className="flex flex-col items-end">
+                                    <ConnectKitButton mode={isNight ? "dark" : "light"} />
+                                    <span className={`text-[10px] ${textColor} opacity-50 mt-0.5`}>Trading</span>
+                                </div>
+                                <div className="flex flex-col items-end">
+                                    <AptosConnectButton isNight={isNight} />
+                                    <span className={`text-[10px] ${textColor} opacity-50 mt-0.5`}>Signals</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 

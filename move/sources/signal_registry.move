@@ -1,5 +1,6 @@
 module fourcast_addr::signal_registry {
     use std::string::String;
+    use std::signer;
     use aptos_framework::event;
     use aptos_framework::timestamp;
     use aptos_std::table::{Self, Table};

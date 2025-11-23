@@ -4,6 +4,7 @@ import './global.css/index.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 import { ConnectKitProvider } from 'connectkit';
+import { AptosProvider } from './providers/AptosProvider';
 import { config } from '../onchain/config';
 
 const queryClient = new QueryClient();
@@ -24,7 +25,9 @@ export default function RootLayout({ children }) {
                 "--ck-secondary-button-background": "#6b7280",
               }}
             >
-              {children}
+              <AptosProvider>
+                {children}
+              </AptosProvider>
             </ConnectKitProvider>
           </WagmiProvider>
         </QueryClientProvider>

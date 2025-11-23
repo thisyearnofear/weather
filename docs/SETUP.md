@@ -231,7 +231,34 @@ For setup issues:
 
 ---
 
-*Last updated: November 2024*
+*Last updated: November 2025*
+
+---
+
+## Gitignore Configuration
+
+The repository includes entries to exclude build artifacts and environment files:
+
+```
+# Aptos CLI
+.aptos/
+move/build/
+
+# Environment
+.env.local
+.env
+
+# Node modules
+/node_modules
+
+# IDE
+.vscode/
+.idea/
+*.swp
+```
+
+Ensure these are in your `.gitignore` to keep the repository clean and avoid committing secrets.
+
 ---
 
 ## Aptos Blockchain Integration
@@ -248,38 +275,64 @@ For setup issues:
    aptos init --network devnet
    ```
 
+3. **Fund Your Account**
+   ```bash
+   aptos account fund-with-faucet --account YOUR_ADDRESS --amount 100000000
+   ```
+
 ### Deploy Move Module
 
-```bash
-cd move
-aptos move compile --named-addresses fourcast_addr=default
-aptos move publish --named-addresses fourcast_addr=default
-```
+1. **Compile the module**
+   ```bash
+   cd move
+   aptos move compile --named-addresses fourcast_addr=default
+   ```
+   
+   Note: You may see warnings about invalid documentation comments - these are safe to ignore.
 
-Save your module address from the output!
+2. **Publish to devnet**
+   ```bash
+   echo "yes" | aptos move publish --named-addresses fourcast_addr=default
+   ```
+   
+   The `echo "yes" |` pipes an automatic confirmation to avoid the interactive prompt.
+
+3. **Save your module address**
+   
+   The output will contain your module address in the `sender` field:
+   ```json
+   {
+     "sender": "0xYOUR_MODULE_ADDRESS",
+     ...
+   }
+   ```
+   
+   Copy this address for the next step.
 
 ### Configure Frontend
 
 Add to `.env.local`:
-```bash
+```env
 NEXT_PUBLIC_APTOS_NODE_URL=https://fullnode.devnet.aptoslabs.com/v1
-NEXT_PUBLIC_APTOS_MODULE_ADDRESS=0xYOUR_ADDRESS_HERE
+NEXT_PUBLIC_APTOS_MODULE_ADDRESS=0xYOUR_MODULE_ADDRESS
 ```
+
+Replace `0xYOUR_MODULE_ADDRESS` with the address you saved from the deployment output.
 
 ### Install Petra Wallet
 
 1. Install extension: https://petra.app
-2. Create wallet
-3. Switch to Devnet network
-4. Fund with faucet: `aptos account fund-with-faucet --account YOUR_ADDRESS`
+2. Create or import wallet
+3. Switch to **Devnet** network in settings
+4. Fund with faucet if needed: `aptos account fund-with-faucet --account YOUR_ADDRESS --amount 100000000`
 
-### Test
+### Test Deployment
 
-1. Start dev server: `npm run dev -- --turbopack`
-2. Visit `/markets`
-3. Connect Aptos wallet
+1. Start dev server: `npm run dev`
+2. Navigate to `/markets`
+3. Connect Aptos wallet (Petra extension)
 4. Publish a signal
-5. Verify on Aptos Explorer
+5. Verify transaction on [Aptos Explorer](https://explorer.aptoslabs.com?network=devnet)
 
 ### Resources
 

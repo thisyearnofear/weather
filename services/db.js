@@ -5,8 +5,8 @@ import Database from 'better-sqlite3';
 import path from 'path';
 
 // Initialize database
-const dbPath = process.env.NODE_ENV === 'production' 
-  ? '/tmp/fourcast.db' 
+const dbPath = process.env.NODE_ENV === 'production'
+  ? '/tmp/fourcast.db'
   : path.join(process.cwd(), 'fourcast.db');
 
 const db = new Database(dbPath);
@@ -147,6 +147,12 @@ const statements = {
     ORDER BY timestamp DESC
     LIMIT ?
   `),
+
+  updateSignalTxHash: db.prepare(`
+    UPDATE signals 
+    SET tx_hash = ? 
+    WHERE id = ?
+  `),
 };
 
 /**
@@ -223,8 +229,8 @@ export function getMarketPredictions(marketId) {
 export function getUserStats(userAddress) {
   try {
     const stats = statements.getUserStats.get(userAddress.toLowerCase());
-    return { 
-      success: true, 
+    return {
+      success: true,
       stats: stats || {
         user_address: userAddress.toLowerCase(),
         total_predictions: 0,
@@ -307,6 +313,18 @@ export function getSignalsByEvent(eventId, limit = 50) {
     return { success: true, signals: rows };
   } catch (error) {
     return { success: false, error: error.message, signals: [] };
+  }
+}
+
+export function updateSignalTxHash(id, txHash) {
+  try {
+    const info = statements.updateSignalTxHash.run(txHash, id);
+    if (info.changes === 0) {
+      return { success: false, error: 'Signal not found' };
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 }
 
