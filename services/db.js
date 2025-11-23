@@ -12,7 +12,11 @@ const dbPath = process.env.NODE_ENV === 'production'
 const db = new Database(dbPath);
 
 // Enable WAL mode for better concurrency
-db.pragma('journal_mode = WAL');
+try {
+  db.pragma('journal_mode = WAL');
+} catch (err) {
+  console.warn('Failed to set WAL mode:', err.message);
+}
 
 // Create tables
 db.exec(`

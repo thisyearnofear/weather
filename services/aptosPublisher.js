@@ -10,14 +10,15 @@
  * - Graceful fallback to SQLite if Aptos fails
  */
 
-import { AptosClient, Types } from 'aptos';
+import { Aptos, AptosConfig, Network } from '@aptos-labs/ts-sdk';
 
-const APTOS_NODE_URL = process.env.NEXT_PUBLIC_APTOS_NODE_URL || 'https://fullnode.devnet.aptoslabs.com/v1';
+const APTOS_NETWORK = process.env.NEXT_PUBLIC_APTOS_NETWORK || Network.DEVNET;
 const MODULE_ADDRESS = process.env.NEXT_PUBLIC_APTOS_MODULE_ADDRESS || '0x1'; // Will be set after deployment
 
 export class AptosSignalPublisher {
     constructor() {
-        this.client = new AptosClient(APTOS_NODE_URL);
+        const config = new AptosConfig({ network: APTOS_NETWORK });
+        this.aptos = new Aptos(config);
     }
 
     /**
@@ -38,10 +39,9 @@ export class AptosSignalPublisher {
         } = signalData;
 
         return {
-            type: 'entry_function_payload',
             function: `${MODULE_ADDRESS}::signal_registry::publish_signal`,
-            type_arguments: [],
-            arguments: [
+            typeArguments: [],
+            functionArguments: [
                 event_id,
                 market_title,
                 venue,
@@ -60,13 +60,13 @@ export class AptosSignalPublisher {
      */
     async getSignalCount(accountAddress) {
         try {
-            const payload = {
-                function: `${MODULE_ADDRESS}::signal_registry::get_signal_count`,
-                type_arguments: [],
-                arguments: [accountAddress],
-            };
-
-            const result = await this.client.view(payload);
+            const result = await this.aptos.view({
+                payload: {
+                    function: `${MODULE_ADDRESS}::signal_registry::get_signal_count`,
+                    typeArguments: [],
+                    functionArguments: [accountAddress],
+                }
+            });
             return parseInt(result[0]);
         } catch (error) {
             console.error('Failed to get signal count:', error);
@@ -79,8 +79,7 @@ export class AptosSignalPublisher {
      */
     async waitForTransaction(txHash) {
         try {
-            await this.client.waitForTransaction(txHash);
-            const txn = await this.client.getTransactionByHash(txHash);
+            const txn = await this.aptos.waitForTransaction({ transactionHash: txHash });
             return {
                 success: txn.success,
                 tx_hash: txHash,
@@ -97,3 +96,5 @@ export class AptosSignalPublisher {
 }
 
 export const aptosPublisher = new AptosSignalPublisher();
+
+

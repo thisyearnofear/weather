@@ -91,7 +91,9 @@ const nextConfig = {
           'node:stream': false,
           'node:util': false,
           'node:zlib': false,
+          'node:zlib': false,
           'node:buffer': false,
+          got: false,
         },
       };
     }

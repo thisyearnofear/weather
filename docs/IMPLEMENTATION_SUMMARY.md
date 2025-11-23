@@ -22,6 +22,12 @@
    - Added `updateSignalTxHash` to `services/db.js`
    - Added `PATCH /api/signals` endpoint to handle hash updates
 
+5. **Build Fixes & Dependency Updates**
+   - Migrated to `@aptos-labs/ts-sdk` and `@aptos-labs/wallet-adapter-react`
+   - Removed legacy wallet plugins (`petra-plugin-wallet-adapter`, etc.) in favor of Wallet Standard
+   - Fixed `got` module build error by adding webpack fallback and dependency
+   - Fixed `SqliteError: database is locked` during build by handling concurrency safely
+
 ## 🧪 How to Test
 
 1. **Start Development Server**
