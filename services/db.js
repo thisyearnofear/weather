@@ -339,19 +339,20 @@ export function getLeaderboard(limit = 10) {
   try {
     const leaderboard = db.prepare(`
       SELECT 
-        user_address,
-        total_predictions,
-        total_stake_wei,
-        win_count,
-        loss_count,
+        u.user_address,
+        u.total_predictions,
+        u.total_stake_wei,
+        u.win_count,
+        u.loss_count,
+        (SELECT COUNT(*) FROM signals s WHERE s.author_address = u.user_address) as total_signals,
         CASE 
-          WHEN (win_count + loss_count) > 0 
-          THEN CAST(win_count AS REAL) / (win_count + loss_count) 
+          WHEN (u.win_count + u.loss_count) > 0 
+          THEN CAST(u.win_count AS REAL) / (u.win_count + u.loss_count) 
           ELSE 0 
         END as win_rate
-      FROM user_stats
-      WHERE total_predictions >= 3
-      ORDER BY win_rate DESC, total_predictions DESC
+      FROM user_stats u
+      WHERE u.total_predictions >= 3 OR total_signals > 0
+      ORDER BY win_rate DESC, total_signals DESC, u.total_predictions DESC
       LIMIT ?
     `).all(limit);
 
