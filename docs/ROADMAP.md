@@ -1,6 +1,6 @@
 # Product Roadmap - Fourcast
 
-**Status:** Phase 7 Complete → Phase 8 (Aptos Integration) In Progress
+**Status:** Phase 8 (Aptos Integration & Reputation) - Frontend/Backend Complete, Deployment Pending
 
 ---
 
@@ -14,18 +14,20 @@
 - ✅ **Venue Extraction** - 80+ stadiums, NFL + EPL teams mapped
 - ✅ **SQLite Signals** - Local persistence with author_address tracking
 - ✅ **EVM Wallet** - ConnectKit integration (MetaMask, Coinbase, etc.)
+- ✅ **Aptos Wallet** - Wallet Standard integration (Petra, etc.)
+- ✅ **Reputation System** - Leaderboard & Profile Drawer (Frontend/Backend)
 
 ### Data Flow (Current)
 ```
 Polymarket API → Weather Analysis → AI Edge Detection → Display
                                                           ↓
                                     User publishes → SQLite (with EVM address)
+                                                          ↓
+                                    (Optional) → Aptos Blockchain (Signal Registry)
 ```
 
 ### What's Missing
-- ❌ Aptos wallet integration (code ready, not deployed)
 - ❌ On-chain signal publishing (Move module ready, not deployed)
-- ❌ Reputation/incentive system
 - ❌ In-app trading (currently external links)
 
 ---
@@ -91,8 +93,8 @@ Polymarket API → Weather Analysis → AI Edge Detection → Display
 - ✅ `/hooks/useAptosSignalPublisher.js` - Ready
 - ✅ `/app/providers/AptosProvider.js` - Ready
 - ✅ `/app/components/AptosConnectButton.js` - Ready
-- 🔄 `/app/layout.js` - Add AptosProvider
-- 🔄 `/app/markets/page.js` - Add Aptos wallet button + publishing
+- ✅ `/app/layout.js` - Added AptosProvider
+- ✅ `/app/markets/page.js` - Added Aptos wallet button + publishing
 
 **Success Metrics:**
 - [ ] Module deployed to devnet
@@ -349,113 +351,68 @@ Seasonal Leaderboards:
 
 ---
 
-## Phase 9: In-App Trading (Optional)
+## Phase 9: Multi-Market Aggregation (Kalshi Integration)
 
-**Goal:** Enable trading without leaving the app
+**Goal:** Unify Polymarket and Kalshi into a single "Weather Market Terminal" without bloating the UI.
 
-### Integration Options
+### Strategy (Principles Aligned)
+- **Enhancement First:** Update existing `MarketsPage` to support multi-source data instead of creating new pages.
+- **DRY:** Create a shared `Market` interface that normalizes data from both Polymarket (Polygon) and Kalshi (US Regulated).
+- **Modular:** Implement `kalshiService.js` as a standalone module that plugs into the main API route.
 
-**Option 1: Polymarket SDK (Easiest)**
-```javascript
-import { PolymarketSDK } from '@polymarket/sdk';
+### Implementation Plan
 
-// In Markets page
-const sdk = new PolymarketSDK();
+1. **Data Normalization Layer**
+   ```javascript
+   interface Market {
+     id: string;
+     platform: 'polymarket' | 'kalshi';
+     title: string;
+     odds: { yes: number, no: number };
+     volume: number;
+     resolutionDate: string;
+     weatherContext?: WeatherData; // Shared enrichment
+   }
+   ```
 
-const handleTrade = async (market, side, amount) => {
-  const order = await sdk.createOrder({
-    market: market.id,
-    side, // YES or NO
-    amount,
-  });
-  
-  // User signs with MetaMask
-  const signature = await signer.signTypedData(order);
-  await sdk.submitOrder(order, signature);
-};
-```
+2. **Unified API Route (`/api/markets`)**
+   - Modify to fetch from both services in parallel.
+   - Merge and sort results by "Edge Score" (regardless of platform).
+   - Apply shared filters (Location, Volume, Date).
 
-**Option 2: Deep Links (Simpler)**
-```javascript
-// Pre-fill trade on Polymarket
-const tradeUrl = `https://polymarket.com/market/${market.id}?side=YES&amount=100`;
-window.open(tradeUrl, '_blank');
-```
+3. **UX Enhancements**
+   - Add "Platform" toggle in Filters: `[All] [Polymarket] [Kalshi]`
+   - Add Platform Icon to Market Cards (Polygon logo vs Kalshi logo).
+   - Unified "Signal Publishing" flow:
+     - User analyzes Kalshi market → Publishes signal to Aptos.
+     - *Note: Signal Registry is platform-agnostic.*
 
-**Recommendation:** Start with Option 2 (deep links), upgrade to Option 1 later.
-
----
-
-## Phase 10: Multi-Market Support
-
-**Goal:** Support 9lives (Arbitrum), Azuro (Polygon), etc.
-
-### Abstraction Layer
-
-```javascript
-// services/marketAdapter.js
-class MarketAdapter {
-  constructor(platform) {
-    this.platform = platform; // 'polymarket', '9lives', 'azuro'
-  }
-  
-  async getMarkets(filters) {
-    switch (this.platform) {
-      case 'polymarket':
-        return await PolymarketAPI.getMarkets(filters);
-      case '9lives':
-        return await NineLivesAPI.getMarkets(filters);
-      case 'azuro':
-        return await AzuroAPI.getMarkets(filters);
-    }
-  }
-  
-  async getTradingUrl(market) {
-    // Return platform-specific URL
-  }
-}
-```
-
-### UX
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  Select Platform:                                        │
-│  [Polymarket] [9lives] [Azuro] [All]                    │
-└─────────────────────────────────────────────────────────┘
-```
+### Success Metrics
+- [ ] Kalshi weather markets (NYC, CHI, MIA temps) visible in feed
+- [ ] Seamless filtering between platforms
+- [ ] Unified "Edge Score" ranking across both providers
 
 ---
 
-## Success Metrics
+## Phase 10: Universal Trading (Future)
 
-### Phase 8 (Aptos Integration)
-- [ ] 100+ signals on devnet
-- [ ] 50+ unique publishers
-- [ ] 99%+ transaction success rate
-- [ ] <$0.001 average gas cost
+**Goal:** Enable execution on any supported platform.
 
-### Phase 9 (Incentives)
-- [ ] 500+ signals published
-- [ ] 100+ users with reputation scores
-- [ ] 20+ copy trading relationships
-- [ ] $1K+ in referral earnings distributed
+### The Vision
+As Kalshi moves on-chain (Base/Solana), our Dual Wallet strategy expands:
+- **Trading Wallet:**
+  - EVM (MetaMask): Polymarket (Polygon), Kalshi (Base - Future)
+  - SVM (Phantom): Kalshi (Solana - Future)
+- **Identity Wallet:**
+  - Aptos (Petra): Reputation, Signal History, Social Graph
 
-### Phase 10 (Growth)
-- [ ] 1,000+ monthly active users
-- [ ] 5,000+ signals published
-- [ ] 50+ premium subscribers
-- [ ] $10K+ monthly revenue
-
----
-
-## Timeline
-
-**Week 1-2:** Aptos deployment + dual wallet UX  
-**Week 3-4:** Reputation system + leaderboard  
-**Month 2:** Copy trading + referral program  
-**Month 3:** Premium tiers + API access  
-**Month 4:** Multi-market support  
+### Integration Steps
+1. **Deep Links (Current):**
+   - Polymarket: `polymarket.com/market/...`
+   - Kalshi: `kalshi.com/markets/...`
+2. **In-App Execution (Future):**
+   - Integrate Kalshi API for direct order placement (if API trading allowed).
+   - Integrate 0x/CoW Swap for on-chain execution.
 
 ---
 

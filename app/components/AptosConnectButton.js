@@ -17,7 +17,7 @@ export default function AptosConnectButton({ isNight = false }) {
     const bgColor = isNight ? 'bg-white/10 hover:bg-white/20' : 'bg-black/10 hover:bg-black/20';
     const borderColor = isNight ? 'border-white/20' : 'border-black/20';
 
-    if (connected && account) {
+    if (connected && account?.address && typeof account.address === 'string') {
         const shortAddress = `${account.address.slice(0, 6)}...${account.address.slice(-4)}`;
         return (
             <button
