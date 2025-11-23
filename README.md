@@ -1,33 +1,41 @@
-# 🌤️ Fourcast: AI-Powered Weather Edge Analytics on BNB Chain
+# 🌤️ Fourcast: AI-Powered Weather Edge Analytics Platform
 
-**Built for BNB Chain Prediction Markets Hackathon**
-
-An AI intelligence layer that analyzes weather forecasts to identify mispriced prediction markets. Uses BNB Chain for low-cost prediction receipts and performance tracking, while leveraging Polymarket's established liquidity for market data.
+A multichain AI intelligence layer that analyzes weather forecasts to identify mispriced prediction markets. Built on a sophisticated infrastructure spanning multiple blockchains to optimize for trading, analytics, and reputation tracking.
 
 ## 🎯 Core Value Proposition
 
 Weather impacts billions in outcomes (sports performance, voter turnout, event logistics), but retail prediction market participants systematically under-weight these factors. Fourcast uses AI to detect information asymmetries where current odds don't reflect weather-adjusted probabilities.
 
-## 🔗 Multi-Chain Architecture
+## 🔗 Multichain Architecture
 
-### **Polymarket (Polygon) = Trading**
-- Actual prediction market orders and settlements
-- Established liquidity and professional trading infrastructure
-- Order books, spreads, market depth
+Our platform leverages a sophisticated three-chain architecture, each optimized for specific functions:
 
-### **BNB Chain = Analytics & Receipts**
+### **Polygon (Polymarket) = Trading & Liquidity**
+- Live prediction market orders and settlements
+- Established institutional-grade liquidity infrastructure
+- Professional trading tools, order books, and market depth
+- Real-time odds data and market movements
+
+### **BNB Chain = Analytics & Performance Tracking**
 - Low-cost prediction receipts (<$0.10 per transaction)
 - Fast finality (3-second blocks) for instant confirmation
 - Immutable performance tracking and analytics storage
-- Cross-chain prediction history
+- Cross-chain prediction history and validation
+
+### **Aptos = Reputation & Signal Registry**
+- On-chain signal publishing and reputation tracking
+- Cryptographic proof of AI analysis and predictions
+- Decentralized analyst scoring and leaderboards
+- Move-based smart contracts for signal integrity
 
 ### **Why This Design?**
-Rather than bootstrapping our own prediction markets (expensive, slow), we leverage the best of both chains:
-- **Trade where liquidity exists** (Polymarket/Polygon)
-- **Track where it's cheap** (BNB Chain)
-- **Analyze across both** (unified dashboard)
+Rather than building on a single chain, we optimize for each use case:
+- **Trade where liquidity exists** (Polygon/Polymarket)
+- **Track performance affordably** (BNB Chain)
+- **Build reputation transparently** (Aptos)
+- **Unified intelligence layer** across all chains
 
-This hybrid approach provides professional trading with affordable analytics—the best of both worlds.
+This multichain approach delivers institutional-grade trading with affordable analytics and transparent reputation—combining the strengths of each ecosystem.
 
 See [Architecture Guide](./docs/ARCHITECTURE.md) for technical details.
 
@@ -107,23 +115,42 @@ Provide 2-3 paragraph analysis with specific reasoning.
 
 ## 🛠️ Tech Stack
 
-- **Blockchain**: BNB Chain (primary), Arbitrum (secondary) - Smart contract deployment
-- **Smart Contracts**: Solidity 0.8.20, OpenZeppelin, Fee-only prediction receipts
-- **Frontend**: Next.js 15, React 19, React Three Fiber, Tailwind CSS
-- **3D Graphics**: Three.js, React Three Drei, Postprocessing Effects
-- **Web3**: Wagmi, ConnectKit, Ethers 6
-- **AI**: Venice AI (qwen3-235b for deep reasoning)
-- **Market Data**: Polymarket Gamma API
-- **Backend**: Next.js API Routes, WeatherAPI, Redis caching
-- **Database**: SQLite for prediction history and analytics
-- **Hosting**: Vercel (frontend), BNB Chain (contracts)
+### **Multichain Infrastructure**
+- **Polygon**: Polymarket integration, trading execution
+- **BNB Chain**: Analytics contracts, performance tracking
+- **Aptos**: Signal registry, reputation system (Move smart contracts)
+
+### **Smart Contracts & Web3**
+- **Solidity 0.8.20**: BNB Chain analytics contracts with OpenZeppelin
+- **Move**: Aptos signal registry and reputation tracking
+- **Web3 Integration**: Wagmi, ConnectKit, Aptos Wallet Standard
+- **Wallets**: MetaMask (trading), Petra (signals), multi-wallet UX
+
+### **Frontend & UX**
+- **Framework**: Next.js 15, React 19, React Three Fiber
+- **Styling**: Tailwind CSS, responsive design
+- **3D Graphics**: Three.js, React Three Drei, postprocessing effects
+- **State Management**: React hooks, Web3 context providers
+
+### **AI & Data**
+- **AI Engine**: Venice AI (qwen3-235b for deep reasoning)
+- **Market Data**: Polymarket Gamma API, real-time odds
+- **Weather Data**: WeatherAPI integration, forecast analysis
+- **Backend**: Next.js API Routes, Redis caching, SQLite analytics
+
+### **Infrastructure & Deployment**
+- **Hosting**: Vercel (frontend), multichain contract deployment
+- **Database**: SQLite for local analytics, on-chain for immutable records
+- **APIs**: RESTful endpoints, streaming AI analysis, WebSocket connections
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js 18.18+ or 20+
 - npm or yarn
-- MetaMask wallet
+- MetaMask wallet (for trading on Polygon)
+- Petra wallet (for signals on Aptos)
+- API keys: WeatherAPI, Venice AI
 
 ### Installation
 
@@ -143,10 +170,19 @@ cp .env.local.example .env.local
 
 ```bash
 # .env.local
+# Weather & AI Services
 NEXT_PUBLIC_WEATHER_API_KEY=your_weather_api_key
+VENICE_API_KEY=your_venice_api_key
+
+# Multichain Configuration
 NEXT_PUBLIC_POLYMARKET_HOST=https://clob.polymarket.com
-NEXT_PUBLIC_ARBITRUM_CHAIN_ID=42161
-VENICE_API_KEY=your_venice_api_key     # For AI analysis
+NEXT_PUBLIC_BNB_CHAIN_ID=56
+NEXT_PUBLIC_APTOS_NODE_URL=https://fullnode.devnet.aptoslabs.com/v1
+NEXT_PUBLIC_APTOS_NETWORK=devnet
+
+# Contract Addresses (update after deployment)
+NEXT_PUBLIC_BNB_ANALYTICS_CONTRACT=0x...
+NEXT_PUBLIC_APTOS_SIGNAL_REGISTRY_MODULE=0x...::signal_registry
 ```
 
 ### Development
@@ -162,16 +198,13 @@ npm run build
 npm start
 ```
 
-## 🌐 Web3 Integration
+## 🌐 Multichain Web3 Integration
 
-### Polymarket Setup
-
-1. **Install Polymarket Client**:
+### Trading Layer (Polygon/Polymarket)
 ```bash
 npm install @polymarket/clob-client ethers
 ```
 
-2. **Initialize Client** (see `onchain/polymarket.ts`):
 ```typescript
 import { ClobClient } from "@polymarket/clob-client";
 
@@ -182,37 +215,88 @@ const client = new ClobClient(
   creds,
   signatureType
 );
-```
 
-3. **Place Prediction Bet**:
-```typescript
+// Execute prediction market order
 const order = await client.createAndPostOrder({
   tokenID: weatherMarketTokenId,
-  price: 0.50, // 50% probability estimation
+  price: 0.50, // AI-analyzed probability
   side: Side.BUY,
   size: 1,
   feeRateBps: 0,
 });
 ```
 
-## 📈 2-Week MVP Deliverables
+### Analytics Layer (BNB Chain)
+```solidity
+// Prediction receipt contract
+contract WeatherAnalytics {
+    struct PredictionReceipt {
+        uint256 timestamp;
+        string marketId;
+        string weatherData;
+        uint256 confidence;
+        address analyst;
+    }
+    
+    function recordPrediction(
+        string memory marketId,
+        string memory weatherData,
+        uint256 confidence
+    ) external;
+}
+```
 
-- Event ingestion for NFL games
-- Weather-to-event matching system
-- AI analysis pipeline with Venice AI API
-- Dashboard showing top 5 opportunities weekly
-- Track record page comparing predictions vs. outcomes
+### Reputation Layer (Aptos)
+```typescript
+import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
 
-## 🎯 Roadmap
+// Publish signal to Aptos
+const payload = {
+  function: `${MODULE_ADDRESS}::signal_registry::publish_signal`,
+  arguments: [
+    eventId,
+    marketTitle,
+    venue,
+    eventTime,
+    marketSnapshotHash,
+    weatherJson,
+    aiDigest,
+    confidence,
+    oddsEfficiency,
+  ],
+};
 
-- [ ] Event ingestion system (NFL, sports, political events)
-- [ ] AI analysis engine with Claude/GPT
-- [ ] Edge detection and scoring algorithm
-- [ ] Real-time dashboard with ranked opportunities
-- [ ] Weather forecast monitoring and alerts
-- [ ] Historical performance tracking
-- [ ] Mobile-responsive interface
-- [ ] Cross-chain operations
+const transaction = await aptos.signAndSubmitTransaction({
+  signer: account,
+  data: payload,
+});
+```
+
+## 🚀 Key Features & Capabilities
+
+### **Real-Time Intelligence**
+- Automated event detection and weather correlation
+- AI-powered market inefficiency identification
+- Live odds monitoring and forecast updates
+- Cross-chain data aggregation and analysis
+
+### **Multichain Operations**
+- Seamless trading on Polygon via Polymarket integration
+- Cost-efficient analytics tracking on BNB Chain
+- Transparent reputation building on Aptos blockchain
+- Unified dashboard across all chains
+
+### **Professional Tools**
+- Dual-wallet UX (MetaMask + Petra) for different functions
+- Real-time market analysis with confidence scoring
+- Historical performance tracking and validation
+- Comprehensive API for algorithmic integration
+
+### **Advanced Analytics**
+- Weather impact modeling for various event types
+- Market efficiency scoring and edge detection
+- Analyst reputation and leaderboard systems
+- Cryptographic proof of predictions and outcomes
 
 ## 📖 Documentation
 

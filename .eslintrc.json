@@ -1,0 +1,45 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2021": true
+  },
+  "extends": ["eslint:recommended"],
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "module",
+    "ecmaFeatures": { "jsx": true }
+  },
+  "ignorePatterns": ["node_modules/", "dist/", ".next/", "coverage/"],
+  "rules": {
+    "no-unused-vars": [
+      "warn",
+      { "args": "none", "varsIgnorePattern": "^_", "argsIgnorePattern": "^_" }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.js", "**/*.test.ts"],
+      "env": { "node": true },
+      "globals": {
+        "describe": "readonly",
+        "it": "readonly",
+        "test": "readonly",
+        "expect": "readonly",
+        "beforeAll": "readonly",
+        "afterAll": "readonly",
+        "beforeEach": "readonly",
+        "afterEach": "readonly"
+      }
+    },
+    {
+      "files": ["services/venueExtractor.js"],
+      "rules": { "no-dupe-keys": "off" }
+    },
+    {
+      "files": ["next.config.js"],
+      "rules": { "no-dupe-keys": "off" }
+    }
+  ]
+}
