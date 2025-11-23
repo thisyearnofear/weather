@@ -1254,11 +1254,11 @@ class PolymarketService {
       }
 
       // For event-weather analysis, we want sports markets even with low edge scores
-      // For discovery, require edge score > 0
-      if (analysisType === 'discovery') {
-        const beforeEdgeFilter = filtered.length;
-        filtered = filtered.filter(m => m.edgeScore > 0);
-        console.debug(`🔍 Edge score filter (> 0): ${beforeEdgeFilter} → ${filtered.length}`);
+      // For discovery, DON'T filter by edge score - show all high-volume markets
+      // Discovery is about market browsing, not weather analysis
+      if (analysisType === 'event-weather') {
+        // Event-weather mode: no edge score filter needed, all sports are relevant
+        console.debug(`🔍 Edge score filter: DISABLED for event-weather mode`);
       }
 
       // FILTER 2: Exclude futures bets where weather analysis is weak
@@ -1418,8 +1418,21 @@ class PolymarketService {
         diversifiedMarkets.push(...group);
       }
 
-      // Take the top N markets after diversification
-      let finalMarkets = diversifiedMarkets.slice(0, limit);
+      // DEDUPLICATE: Remove duplicate markets by ID before slicing
+      // This can happen when same market is fetched from multiple league tags
+      const seenIds = new Set();
+      let uniqueMarkets = [];
+      for (const market of diversifiedMarkets) {
+        const id = market.marketID;
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          uniqueMarkets.push(market);
+        }
+      }
+      console.log(`🔄 Deduplication: ${diversifiedMarkets.length} → ${uniqueMarkets.length} unique markets`);
+
+      // Take the top N markets after diversification and deduplication
+      let finalMarkets = uniqueMarkets.slice(0, limit);
       const enrichedFinal = await Promise.all(
         finalMarkets.map(async (market) => {
           try {

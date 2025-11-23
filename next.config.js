@@ -8,6 +8,9 @@ const nextConfig = {
   // Enable compression
   compress: true,
 
+  // Turbopack configuration (for Next.js 16+)
+  turbopack: {},
+
   // Performance optimizations
   experimental: {
     // Enable scroll restoration

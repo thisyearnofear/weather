@@ -6,6 +6,7 @@ export async function POST(request) {
     try {
       body = await request.json();
     } catch (parseErr) {
+      console.error('[POST /api/markets] JSON parse error:', parseErr.message);
       return Response.json({
         success: false,
         error: 'Invalid JSON in request body',
@@ -13,7 +14,18 @@ export async function POST(request) {
       }, { status: 400 });
     }
 
+    console.log('[POST /api/markets] Request body:', JSON.stringify(body, null, 2));
+
     const { location, weatherData, eventType, confidence, limitCount, theme, excludeFutures, searchText, maxDaysToResolution, minVolume, analysisType } = body;
+    
+    console.log('[POST /api/markets] Extracted params:', {
+      eventType,
+      confidence,
+      minVolume,
+      maxDaysToResolution,
+      analysisType,
+      limitCount
+    });
 
     // REFACTORED: New architecture - supports two analysis modes:
     // 1. 'event-weather' (/ai page): Fetches weather at event venues
@@ -33,28 +45,41 @@ export async function POST(request) {
     const limit = limitCount || 8;
 
     // Use new liquidity-first, edge-ranked discovery
+    console.log('[Markets API] About to call getTopWeatherSensitiveMarkets with limit:', limit);
+    
     let result;
     try {
-      console.log('[Markets API] Calling getTopWeatherSensitiveMarkets with filters:', filters);
+      console.log('[Markets API] Calling getTopWeatherSensitiveMarkets with filters:', JSON.stringify(filters));
       result = await polymarketService.getTopWeatherSensitiveMarkets(limit, filters);
-      console.log('[Markets API] Result received:', { marketsCount: result.markets?.length, totalFound: result.totalFound, error: result.error });
+      console.log('[Markets API] Result received:', { 
+        marketsCount: result.markets?.length, 
+        totalFound: result.totalFound, 
+        error: result.error,
+        success: result.success
+      });
     } catch (serviceErr) {
       console.error('[Markets API] Service error in getTopWeatherSensitiveMarkets:', serviceErr.message);
+      console.error('[Markets API] Stack:', serviceErr.stack);
       result = {
         markets: [],
         totalFound: 0,
-        error: serviceErr.message
+        error: serviceErr.message,
+        success: false
       };
     }
 
     let marketsList = result.markets || [];
+    console.log('[Markets API] Got marketsList with length:', marketsList.length);
+    
     if (theme && polymarketService.filterByWeatherTheme) {
+      const beforeThemeFilter = marketsList.length;
       marketsList = polymarketService.filterByWeatherTheme(marketsList, theme);
+      console.log('[Markets API] After theme filter:', { before: beforeThemeFilter, after: marketsList.length });
     }
 
     if (!marketsList || marketsList.length === 0) {
       // DEBUG: Log what happened
-      console.log('🔍 No markets returned. Debugging info:', {
+      console.log('[Markets API] 🔍 No markets returned. Debugging info:', {
         resultMarkets: result.markets?.length || 0,
         resultTotalFound: result.totalFound,
         resultError: result.error,

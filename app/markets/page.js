@@ -39,13 +39,12 @@ export default function MarketsPage() {
     const [selectedDateRange, setSelectedDateRange] = useState('today'); // 'today', 'tomorrow', 'this-week', 'later'
     const [sportsMinVolume, setSportsMinVolume] = useState(10000);
 
-    // Discovery-specific filters
+    // Discovery-specific filters (date-first)
     const [discoveryFilters, setDiscoveryFilters] = useState({
         category: 'all',
-        minVolume: '50000',
-        search: ''
+        minVolume: '50000'
     });
-    const [discoverySearchQuery, setDiscoverySearchQuery] = useState('');
+    const [discoveryDateRange, setDiscoveryDateRange] = useState('this-week');
 
     // UI state
     const [error, setError] = useState(null);
@@ -65,7 +64,7 @@ export default function MarketsPage() {
         if (weatherData) {
             fetchMarkets();
         }
-    }, [activeTab, sportsFilters, selectedDateRange, sportsMinVolume]);
+    }, [activeTab, sportsFilters, selectedDateRange, sportsMinVolume, discoveryFilters, discoveryDateRange]);
 
     const loadWeather = async () => {
         setIsLoadingWeather(true);
@@ -103,64 +102,85 @@ export default function MarketsPage() {
             
             // Calculate max days based on selected date range
             let maxDaysToResolution = 7;
-            if (selectedDateRange === 'today') maxDaysToResolution = 1;
-            else if (selectedDateRange === 'tomorrow') maxDaysToResolution = 2;
-            else if (selectedDateRange === 'this-week') maxDaysToResolution = 7;
-            else if (selectedDateRange === 'later') maxDaysToResolution = 60;
+            let dateRange = selectedDateRange;
+            
+            if (isSportsMode) {
+                if (dateRange === 'today') maxDaysToResolution = 1;
+                else if (dateRange === 'tomorrow') maxDaysToResolution = 2;
+                else if (dateRange === 'this-week') maxDaysToResolution = 7;
+                else if (dateRange === 'later') maxDaysToResolution = 60;
+            } else {
+                dateRange = discoveryDateRange;
+                if (dateRange === 'today') maxDaysToResolution = 1;
+                else if (dateRange === 'tomorrow') maxDaysToResolution = 2;
+                else if (dateRange === 'this-week') maxDaysToResolution = 7;
+                else if (dateRange === 'later') maxDaysToResolution = 60;
+            }
+
+            const requestBody = isSportsMode
+                ? {
+                    // Sports mode: event-weather analysis, date-first
+                    weatherData: null,
+                    location: null,
+                    eventType: sportsFilters.eventType,
+                    confidence: sportsFilters.confidence,
+                    limitCount: 50,
+                    maxDaysToResolution: maxDaysToResolution,
+                    minVolume: sportsMinVolume,
+                    analysisType: 'event-weather',
+                    theme: sportsFilters.eventType === 'Sports' ? 'sports' : undefined,
+                    dateRange: selectedDateRange
+                }
+                : {
+                    // Discovery mode: date-first global market browsing
+                    location: null,
+                    eventType: discoveryFilters.category === 'all' ? 'all' : discoveryFilters.category,
+                    confidence: 'all',
+                    limitCount: 50,
+                    maxDaysToResolution: maxDaysToResolution,
+                    theme: 'all',
+                    minVolume: parseInt(discoveryFilters.minVolume),
+                    analysisType: 'discovery',
+                    weatherData: null,
+                    dateRange: discoveryDateRange
+                };
+
+            console.log('[Markets Page] Fetching markets with request:', requestBody);
 
             const response = await fetch('/api/markets', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(
-                    isSportsMode
-                        ? {
-                            // Sports mode: event-weather analysis, date-first
-                            weatherData: null,
-                            location: null,
-                            eventType: sportsFilters.eventType,
-                            confidence: sportsFilters.confidence,
-                            limitCount: 50,
-                            maxDaysToResolution: maxDaysToResolution,
-                            minVolume: sportsMinVolume,
-                            analysisType: 'event-weather',
-                            theme: sportsFilters.eventType === 'Sports' ? 'sports' : undefined,
-                            dateRange: selectedDateRange
-                        }
-                        : {
-                            // Discovery mode: global market browsing
-                            location: null,
-                            eventType: discoveryFilters.category === 'all' ? 'all' : discoveryFilters.category,
-                            confidence: 'all',
-                            limitCount: 50,
-                            searchText: discoveryFilters.search || null,
-                            theme: 'all',
-                            minVolume: parseInt(discoveryFilters.minVolume),
-                            analysisType: 'discovery',
-                            weatherData: null
-                        }
-                )
+                body: JSON.stringify(requestBody)
             });
 
+            console.log('[Markets Page] Response status:', response.status);
+
             if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Markets Page] API error response:', errorText);
                 throw new Error(`API error: ${response.status}`);
             }
 
             const result = await response.json();
+            console.log('[Markets Page] Result:', result);
 
             if (result.success) {
                 if (Array.isArray(result.markets) && result.markets.length > 0) {
+                    console.log('[Markets Page] Success! Got', result.markets.length, 'markets');
                     setMarkets(result.markets);
                     setSelectedMarket(result.markets[0]);
                 } else {
+                    console.log('[Markets Page] Empty markets array');
                     setMarkets([]);
-                    setError('No markets found. Try adjusting filters.');
+                    setError(result.message || 'No markets found. Try adjusting filters.');
                 }
             } else {
+                console.error('[Markets Page] API returned success=false:', result.error);
                 setError(result.error || 'Failed to fetch markets');
             }
         } catch (err) {
-            console.error('Market fetch failed:', err);
-            setError('Unable to fetch markets');
+            console.error('[Markets Page] Market fetch failed:', err);
+            setError('Unable to fetch markets: ' + err.message);
         } finally {
             setIsLoadingMarkets(false);
         }
@@ -401,8 +421,8 @@ export default function MarketsPage() {
                             error={error}
                             filters={discoveryFilters}
                             setFilters={setDiscoveryFilters}
-                            searchQuery={discoverySearchQuery}
-                            setSearchQuery={setDiscoverySearchQuery}
+                            dateRange={discoveryDateRange}
+                            setDateRange={setDiscoveryDateRange}
                             onAnalyze={analyzeMarket}
                             isNight={isNight}
                             textColor={textColor}
@@ -528,62 +548,71 @@ function SportsTabContent({
     );
 }
 
-// Discovery Tab Component (reuses discovery page logic)
+// Discovery Tab Component - Date-First Design
 function DiscoveryTabContent({
-    markets, isLoading, error, filters, setFilters, searchQuery, setSearchQuery,
+    markets, isLoading, error, filters, setFilters, dateRange, setDateRange,
     onAnalyze, isNight, textColor, cardBgColor, expandedMarketId, setExpandedMarketId,
     analysis, isAnalyzing, selectedMarket, onPublishSignal, fetchMarkets
 }) {
-    const handleSearch = async (e) => {
-        e.preventDefault();
-        if (searchQuery.trim()) {
-            setFilters(prev => ({ ...prev, search: searchQuery.trim() }));
-            setSearchQuery('');
-        }
+    const dateRangeLabels = {
+        'today': 'Today',
+        'tomorrow': 'Tomorrow',
+        'this-week': 'This Week',
+        'later': 'Later'
     };
 
     return (
         <div className="space-y-6">
-            {/* Search and Filters */}
-            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6`}>
-                <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
-                    <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search markets by name, team, or keyword..."
-                        className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-light ${isNight ? 'bg-white/10 border border-white/20 text-white placeholder-white/50' : 'bg-black/10 border border-black/20 text-black placeholder-black/50'} focus:outline-none focus:ring-2 focus:ring-blue-400`}
-                        disabled={isLoading}
-                    />
+            {/* Compact Filter Bar */}
+            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-3 space-y-2`}>
+                {/* Category */}
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                    <label className={`${textColor} text-xs opacity-60 min-w-max`}>Category</label>
                     <select
                         value={filters.category}
                         onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
-                        className={`px-4 py-2.5 rounded-xl text-sm font-light ${isNight ? 'bg-white/10 border border-white/20 text-white' : 'bg-black/10 border border-black/20 text-black'}`}
-                        disabled={isLoading}
+                        className={`flex-1 px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
                     >
                         <option value="all">All Categories</option>
                         <option value="Sports">⚽ Sports</option>
                         <option value="Politics">🏛️ Politics</option>
                         <option value="Crypto">₿ Crypto</option>
                     </select>
+                </div>
+
+                {/* Date Range Tabs */}
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                    <label className={`${textColor} text-xs opacity-60 min-w-max`}>When</label>
+                    <div className="flex gap-1 flex-wrap">
+                        {Object.entries(dateRangeLabels).map(([key, label]) => (
+                            <button
+                                key={key}
+                                onClick={() => setDateRange(key)}
+                                className={`px-3 py-1.5 text-xs rounded-lg border transition-all font-light ${
+                                    dateRange === key
+                                        ? (isNight ? 'bg-blue-500/30 text-white border-blue-400/40' : 'bg-blue-400/30 text-black border-blue-500/40')
+                                        : (isNight ? 'bg-white/10 hover:bg-white/20 text-white/70 border-white/20' : 'bg-black/10 hover:bg-black/20 text-black/70 border-black/20')
+                                }`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Min Volume */}
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                    <label className={`${textColor} text-xs opacity-60 min-w-max`}>Min Volume</label>
                     <select
                         value={filters.minVolume}
                         onChange={(e) => setFilters(prev => ({ ...prev, minVolume: e.target.value }))}
-                        className={`px-4 py-2.5 rounded-xl text-sm font-light ${isNight ? 'bg-white/10 border border-white/20 text-white' : 'bg-black/10 border border-black/20 text-black'}`}
-                        disabled={isLoading}
+                        className={`flex-1 px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
                     >
-                        <option value="10000">$10k+ Volume</option>
-                        <option value="50000">$50k+ Volume</option>
-                        <option value="100000">$100k+ Volume</option>
+                        <option value="10000">$10k+</option>
+                        <option value="50000">$50k+</option>
+                        <option value="100000">$100k+</option>
                     </select>
-                    <button
-                        type="submit"
-                        disabled={!searchQuery.trim() || isLoading}
-                        className={`px-8 py-2.5 rounded-xl text-sm font-light transition-all disabled:opacity-40 border ${isNight ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border-blue-400/30' : 'bg-blue-400/20 hover:bg-blue-400/30 text-blue-800 border-blue-500/30'}`}
-                    >
-                        Search
-                    </button>
-                </form>
+                </div>
             </div>
 
             {/* Markets List */}
