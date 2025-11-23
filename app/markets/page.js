@@ -30,16 +30,14 @@ export default function MarketsPage() {
     const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
     const [analysisMode, setAnalysisMode] = useState('basic');
 
-    // Sports-specific filters
+    // Sports-specific filters (date-first)
     const [sportsFilters, setSportsFilters] = useState({
         eventType: 'Soccer',
         confidence: 'MEDIUM',
         bestEdgesOnly: true
     });
-    const [sportsSearchText, setSportsSearchText] = useState('');
-    const [sportsMaxDays, setSportsMaxDays] = useState(7);
+    const [selectedDateRange, setSelectedDateRange] = useState('today'); // 'today', 'tomorrow', 'this-week', 'later'
     const [sportsMinVolume, setSportsMinVolume] = useState(10000);
-    const [includeFutures, setIncludeFutures] = useState(false);
 
     // Discovery-specific filters
     const [discoveryFilters, setDiscoveryFilters] = useState({
@@ -62,12 +60,12 @@ export default function MarketsPage() {
         loadWeather();
     }, []);
 
-    // Fetch markets when tab changes or filters change (NOT on search text change - explicit search only)
+    // Fetch markets when tab changes or filters change
     useEffect(() => {
         if (weatherData) {
             fetchMarkets();
         }
-    }, [activeTab, sportsFilters, sportsMaxDays, sportsMinVolume, includeFutures]);
+    }, [activeTab, sportsFilters, selectedDateRange, sportsMinVolume]);
 
     const loadWeather = async () => {
         setIsLoadingWeather(true);
@@ -102,6 +100,13 @@ export default function MarketsPage() {
 
         try {
             const isSportsMode = activeTab === 'sports';
+            
+            // Calculate max days based on selected date range
+            let maxDaysToResolution = 7;
+            if (selectedDateRange === 'today') maxDaysToResolution = 1;
+            else if (selectedDateRange === 'tomorrow') maxDaysToResolution = 2;
+            else if (selectedDateRange === 'this-week') maxDaysToResolution = 7;
+            else if (selectedDateRange === 'later') maxDaysToResolution = 60;
 
             const response = await fetch('/api/markets', {
                 method: 'POST',
@@ -109,18 +114,17 @@ export default function MarketsPage() {
                 body: JSON.stringify(
                     isSportsMode
                         ? {
-                            // Sports mode: event-weather analysis
+                            // Sports mode: event-weather analysis, date-first
                             weatherData: null,
                             location: null,
                             eventType: sportsFilters.eventType,
                             confidence: sportsFilters.confidence,
-                            limitCount: 50, // Increased from 12 to get more results after filtering
-                            excludeFutures: !includeFutures,
-                            searchText: sportsSearchText,
-                            maxDaysToResolution: sportsMaxDays,
+                            limitCount: 50,
+                            maxDaysToResolution: maxDaysToResolution,
                             minVolume: sportsMinVolume,
                             analysisType: 'event-weather',
-                            theme: sportsFilters.eventType === 'Sports' ? 'sports' : undefined
+                            theme: sportsFilters.eventType === 'Sports' ? 'sports' : undefined,
+                            dateRange: selectedDateRange
                         }
                         : {
                             // Discovery mode: global market browsing
@@ -371,14 +375,10 @@ export default function MarketsPage() {
                             error={error}
                             filters={sportsFilters}
                             setFilters={setSportsFilters}
-                            searchText={sportsSearchText}
-                            setSearchText={setSportsSearchText}
-                            maxDays={sportsMaxDays}
-                            setMaxDays={setSportsMaxDays}
+                            dateRange={selectedDateRange}
+                            setDateRange={setSelectedDateRange}
                             minVolume={sportsMinVolume}
                             setMinVolume={setSportsMinVolume}
-                            includeFutures={includeFutures}
-                            setIncludeFutures={setIncludeFutures}
                             onAnalyze={analyzeMarket}
                             isNight={isNight}
                             textColor={textColor}
@@ -422,81 +422,71 @@ export default function MarketsPage() {
     );
 }
 
-// Sports Tab Component (reuses sports page logic)
+// Sports Tab Component - Date-First Design
 function SportsTabContent({
-    markets, isLoading, error, filters, setFilters, searchText, setSearchText,
-    maxDays, setMaxDays, minVolume, setMinVolume, includeFutures, setIncludeFutures,
-    onAnalyze, isNight, textColor, cardBgColor, expandedMarketId, setExpandedMarketId,
-    analysis, isAnalyzing, selectedMarket, onPublishSignal, analysisMode
+    markets, isLoading, error, filters, setFilters, dateRange, setDateRange,
+    minVolume, setMinVolume, onAnalyze, isNight, textColor, cardBgColor, 
+    expandedMarketId, setExpandedMarketId, analysis, isAnalyzing, selectedMarket, 
+    onPublishSignal, analysisMode
 }) {
-    const [pendingSearch, setPendingSearch] = React.useState('');
-
-    const handleSearch = (e) => {
-        e.preventDefault();
-        setSearchText(pendingSearch);
+    const dateRangeLabels = {
+        'today': 'Today',
+        'tomorrow': 'Tomorrow',
+        'this-week': 'This Week',
+        'later': 'Later'
     };
 
     return (
         <div className="space-y-6">
-            {/* Filters - Compact version from sports page */}
-            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-4`}>
-                <div className="space-y-3">
-                    {/* Event Type */}
-                    <div>
-                        <label className={`${textColor} text-xs opacity-60 block mb-1`}>Event Type</label>
-                        <select
-                            value={filters.eventType}
-                            onChange={(e) => setFilters(prev => ({ ...prev, eventType: e.target.value }))}
-                            className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
-                        >
-                            <option value="all">All Supported Sports</option>
-                            <option value="Soccer">⚽ Soccer</option>
-                            <option value="NFL">🏈 NFL</option>
-                            <option value="F1">🏎️ Formula 1</option>
-                        </select>
-                    </div>
+            {/* Compact Filter Bar */}
+            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-3 space-y-2`}>
+                {/* Event Type */}
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                    <label className={`${textColor} text-xs opacity-60 min-w-max`}>Event Type</label>
+                    <select
+                        value={filters.eventType}
+                        onChange={(e) => setFilters(prev => ({ ...prev, eventType: e.target.value }))}
+                        className={`flex-1 px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
+                    >
+                        <option value="Soccer">⚽ Soccer</option>
+                        <option value="NFL">🏈 NFL</option>
+                        <option value="F1">🏎️ Formula 1</option>
+                        <option value="all">All Sports</option>
+                    </select>
+                </div>
 
-                    {/* Search with Button */}
-                    <div>
-                        <label className={`${textColor} text-xs opacity-60 block mb-1`}>Search Events</label>
-                        <form onSubmit={handleSearch} className="flex gap-2">
-                            <input
-                                type="text"
-                                value={pendingSearch}
-                                onChange={(e) => setPendingSearch(e.target.value)}
-                                placeholder="e.g., Chiefs, Liverpool, Arrowhead Stadium"
-                                className={`flex-1 px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white placeholder-white/50' : 'bg-black/10 border-black/20 text-black placeholder-black/50'}`}
-                            />
+                {/* Date Range Tabs */}
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                    <label className={`${textColor} text-xs opacity-60 min-w-max`}>When</label>
+                    <div className="flex gap-1 flex-wrap">
+                        {Object.entries(dateRangeLabels).map(([key, label]) => (
                             <button
-                                type="submit"
-                                className={`px-4 py-2 text-sm rounded-lg border transition-all ${isNight ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border-blue-400/30' : 'bg-blue-400/20 hover:bg-blue-400/30 text-blue-800 border-blue-500/30'}`}
+                                key={key}
+                                onClick={() => setDateRange(key)}
+                                className={`px-3 py-1.5 text-xs rounded-lg border transition-all font-light ${
+                                    dateRange === key
+                                        ? (isNight ? 'bg-blue-500/30 text-white border-blue-400/40' : 'bg-blue-400/30 text-black border-blue-500/40')
+                                        : (isNight ? 'bg-white/10 hover:bg-white/20 text-white/70 border-white/20' : 'bg-black/10 hover:bg-black/20 text-black/70 border-black/20')
+                                }`}
                             >
-                                Search
+                                {label}
                             </button>
-                        </form>
-                        {searchText && (
-                            <button
-                                onClick={() => { setSearchText(''); setPendingSearch(''); }}
-                                className={`mt-1 text-xs ${textColor} opacity-60 hover:opacity-100`}
-                            >
-                                Clear search
-                            </button>
-                        )}
+                        ))}
                     </div>
+                </div>
 
-                    {/* Min Volume */}
-                    <div>
-                        <label className={`${textColor} text-xs opacity-60 block mb-1`}>Min Volume</label>
-                        <select
-                            value={String(minVolume)}
-                            onChange={(e) => setMinVolume(parseInt(e.target.value))}
-                            className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
-                        >
-                            <option value="10000">$10k+</option>
-                            <option value="50000">$50k+</option>
-                            <option value="100000">$100k+</option>
-                        </select>
-                    </div>
+                {/* Min Volume */}
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                    <label className={`${textColor} text-xs opacity-60 min-w-max`}>Min Volume</label>
+                    <select
+                        value={String(minVolume)}
+                        onChange={(e) => setMinVolume(parseInt(e.target.value))}
+                        className={`flex-1 px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
+                    >
+                        <option value="10000">$10k+</option>
+                        <option value="50000">$50k+</option>
+                        <option value="100000">$100k+</option>
+                    </select>
                 </div>
             </div>
 

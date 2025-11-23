@@ -35,9 +35,11 @@ export async function POST(request) {
     // Use new liquidity-first, edge-ranked discovery
     let result;
     try {
+      console.log('[Markets API] Calling getTopWeatherSensitiveMarkets with filters:', filters);
       result = await polymarketService.getTopWeatherSensitiveMarkets(limit, filters);
+      console.log('[Markets API] Result received:', { marketsCount: result.markets?.length, totalFound: result.totalFound, error: result.error });
     } catch (serviceErr) {
-      console.error('Service error in getTopWeatherSensitiveMarkets:', serviceErr);
+      console.error('[Markets API] Service error in getTopWeatherSensitiveMarkets:', serviceErr.message);
       result = {
         markets: [],
         totalFound: 0,

@@ -349,9 +349,12 @@ class PolymarketService {
    * IMPROVED: Now uses /events endpoint to get full tag metadata
    */
   async buildMarketCatalog(minVolume = 50000, eventTypeFilter = null, analysisType = 'discovery') {
+    console.log(`🔍 buildMarketCatalog START: minVolume=${minVolume}, eventType=${eventTypeFilter}, analysisType=${analysisType}`);
+    
     // Check cache first
     const cached = this.getCachedCatalog(eventTypeFilter);
     if (cached) {
+      console.log(`✅ Returning cached catalog for ${eventTypeFilter}`);
       return { ...cached, cached: true };
     }
 
@@ -359,6 +362,7 @@ class PolymarketService {
       // Fetch events with full metadata (single page - 100 events should give 200+ markets)
       // Catalog is cached for 30min, so we can be conservative to reduce API load
       let allMarkets = [];
+      console.log(`📥 Fetching fresh markets from API for ${eventTypeFilter || 'all'}...`);
 
       try {
         // SPECIAL CASE: Soccer - fetch from all soccer league tags
@@ -371,8 +375,10 @@ class PolymarketService {
 
             // Fetch events for each soccer league tag
             const soccerEvents = [];
+            console.log(`📋 Fetching events for ${soccerTags.slice(0, 10).length} soccer league tags...`);
             for (const tagId of soccerTags.slice(0, 10)) { // Limit to top 10 leagues to avoid too many requests
               try {
+                console.log(`  → Fetching tag ${tagId}...`);
                 const response = await axios.get(`${this.baseURL}/events`, {
                   params: {
                     tag_id: tagId,
@@ -382,13 +388,16 @@ class PolymarketService {
                   timeout: 10000
                 });
 
+                console.log(`    → Got response: ${response.status}, ${Array.isArray(response.data) ? response.data.length : typeof response.data} items`);
                 if (response.data && Array.isArray(response.data)) {
                   soccerEvents.push(...response.data);
+                  console.log(`    → Added ${response.data.length} events. Total so far: ${soccerEvents.length}`);
                 }
               } catch (err) {
-                console.debug(`   ⚠️ Error fetching tag ${tagId}:`, err.message);
+                console.error(`   ⚠️ Error fetching tag ${tagId}:`, err.message, err.response?.status);
               }
             }
+            console.log(`   ✅ Fetched ${soccerEvents.length} total soccer events`);
 
             console.debug(`✅ Fetched ${soccerEvents.length} soccer events from ${soccerTags.slice(0, 10).length} leagues`);
 
@@ -856,6 +865,18 @@ class PolymarketService {
       baseEnrichedMarkets.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
       const catalog = baseEnrichedMarkets;
 
+      console.log(`✅ buildMarketCatalog COMPLETE:`, {
+        totalMarkets: catalog.length,
+        minVolume,
+        eventTypeFilter,
+        volumeDistribution: {
+          above10k: catalog.filter(m => m.volume24h >= 10000).length,
+          above50k: catalog.filter(m => m.volume24h >= 50000).length,
+          above100k: catalog.filter(m => m.volume24h >= 100000).length
+        },
+        eventTypes: [...new Set(catalog.map(m => m.eventType))].join(', ')
+      });
+
       const result = {
         markets: catalog,
         totalMarkets: catalog.length,
@@ -868,8 +889,8 @@ class PolymarketService {
       this.setCachedCatalog(result, eventTypeFilter);
 
       return result;
-    } catch (error) {
-      console.error('Error building market catalog:', error.message);
+      } catch (error) {
+      console.error('❌ Error building market catalog:', error.message, error.stack);
       return {
         markets: [],
         totalMarkets: 0,
@@ -877,7 +898,7 @@ class PolymarketService {
         timestamp: new Date().toISOString(),
         cached: false
       };
-    }
+      }
   }
 
   /**
@@ -1073,28 +1094,31 @@ class PolymarketService {
    * - 'discovery': For /discovery page - location-agnostic market browsing
    */
   async getTopWeatherSensitiveMarkets(limit = 10, filters = {}) {
-    try {
-      const analysisType = filters.analysisType || 'discovery';
+     console.log(`🎯 getTopWeatherSensitiveMarkets START: limit=${limit}, filters=`, JSON.stringify(filters));
+     
+     try {
+       const analysisType = filters.analysisType || 'discovery';
 
-      // Get full catalog (without order book enrichment to avoid rate limits)
-      const catalogResult = await this.buildMarketCatalog(filters.minVolume || 50000, filters.eventType, analysisType);
+       // Get full catalog (without order book enrichment to avoid rate limits)
+       const catalogResult = await this.buildMarketCatalog(filters.minVolume || 50000, filters.eventType, analysisType);
 
-      console.debug(`📦 Market catalog built:`, {
-        total: catalogResult.markets?.length,
-        minVolume: filters.minVolume,
-        eventType: filters.eventType,
-        cached: catalogResult.cached
-      });
+       console.log(`📦 Market catalog result:`, {
+         total: catalogResult.markets?.length,
+         minVolume: filters.minVolume,
+         eventType: filters.eventType,
+         cached: catalogResult.cached,
+         error: catalogResult.error
+       });
 
-      if (!catalogResult.markets || catalogResult.markets.length === 0) {
-        console.warn(`⚠️ Empty catalog result. Error: ${catalogResult.error}`);
-        return {
-          markets: [],
-          totalFound: 0,
-          message: 'No markets found in catalog',
-          timestamp: new Date().toISOString()
-        };
-      }
+       if (!catalogResult.markets || catalogResult.markets.length === 0) {
+         console.error(`❌ Empty catalog result. Error: ${catalogResult.error}`);
+         return {
+           markets: [],
+           totalFound: 0,
+           message: 'No markets found in catalog',
+           timestamp: new Date().toISOString()
+         };
+       }
 
       // Score each market based on analysis type
       let scoredMarkets;
