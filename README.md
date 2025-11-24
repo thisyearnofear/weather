@@ -136,10 +136,6 @@ npm run build
 npm start
 ```
 
-<!-- Removed extended code examples to keep README concise -->
-
-<!-- Consolidated features above -->
-
 ## 📖 Documentation
 
 Comprehensive documentation in 3 focused guides:
