@@ -1423,6 +1423,62 @@ function MarketCard({
               </div>
             )}
 
+            {/* Disclaimer */}
+            <div
+              className={`${cardBgColor} backdrop-blur-sm border rounded-xl p-4 ${
+                isNight ? "border-white/10" : "border-black/10"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 w-1 h-1 rounded-full ${isNight ? "bg-white/40" : "bg-black/40"}`}></div>
+                <div>
+                  <p className={`text-xs ${textColor} opacity-60 font-light leading-relaxed`}>
+                    <span className="opacity-80">Informational purposes only.</span> This analysis is not financial advice. 
+                    Weather-based predictions are probabilistic and should be combined with your own research. 
+                    Trade responsibly.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* What are Signals? */}
+            <div
+              className={`${cardBgColor} backdrop-blur-sm border rounded-xl p-5`}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xl">📡</span>
+                <h4
+                  className={`text-sm font-medium ${textColor}`}
+                >
+                  What are Signals?
+                </h4>
+              </div>
+              <p className={`text-sm ${textColor} opacity-80 font-light leading-relaxed mb-3`}>
+                Signals are on-chain records of your predictions. When you publish a signal, 
+                you're creating a permanent, timestamped record of your analysis on the blockchain.
+              </p>
+              <div className="grid grid-cols-1 gap-2">
+                <div className="flex items-start gap-2">
+                  <span className={`text-xs ${textColor} opacity-60`}>✓</span>
+                  <p className={`text-xs ${textColor} opacity-70 font-light`}>
+                    <strong className="font-medium">Build your track record</strong> - Prove your prediction accuracy over time
+                  </p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className={`text-xs ${textColor} opacity-60`}>✓</span>
+                  <p className={`text-xs ${textColor} opacity-70 font-light`}>
+                    <strong className="font-medium">Transparent & verifiable</strong> - Anyone can verify your predictions on-chain
+                  </p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className={`text-xs ${textColor} opacity-60`}>✓</span>
+                  <p className={`text-xs ${textColor} opacity-70 font-light`}>
+                    <strong className="font-medium">Own your insights</strong> - Your signals are stored on Aptos blockchain
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Action Buttons: Trade + Publish */}
             <div className="flex gap-3 pt-2">
               <a
@@ -1464,68 +1520,118 @@ function MarketCard({
 // Dynamic Loading State Component
 function LoadingAnalysisState({ isNight, textColor }) {
   const [step, setStep] = useState(0);
+  const [progress, setProgress] = useState(0);
 
   const steps = [
     {
-      text: "Inferring correct venue...",
-      sub: "Using AI to find confirmed stadium location",
+      icon: "🔍",
+      text: "Verifying event location",
+      sub: "Cross-referencing official schedules via web search",
     },
     {
-      text: "Fetching live weather...",
-      sub: "Retrieving real-time forecast data",
+      icon: "🌤️",
+      text: "Fetching live weather data",
+      sub: "Retrieving real-time conditions and forecasts",
     },
     {
-      text: "Analyzing odds efficiency...",
-      sub: "Comparing weather impact vs market lines",
+      icon: "📊",
+      text: "Analyzing market efficiency",
+      sub: "Comparing weather impact vs current odds",
     },
     {
-      text: "Generating prediction...",
-      sub: "Synthesizing final recommendation",
+      icon: "🤖",
+      text: "Generating AI insights",
+      sub: "Synthesizing comprehensive recommendation",
     },
   ];
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const stepInterval = setInterval(() => {
       setStep((prev) => (prev + 1) % steps.length);
-    }, 2000); // Change step every 2 seconds
-    return () => clearInterval(interval);
+    }, 2500);
+    
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) return 0;
+        return prev + 1;
+      });
+    }, 100);
+    
+    return () => {
+      clearInterval(stepInterval);
+      clearInterval(progressInterval);
+    };
   }, []);
 
   return (
     <div className="mt-8 pt-8 border-t border-white/10 flex flex-col items-center justify-center py-12">
-      <div
-        className={`w-8 h-8 border-2 ${
-          isNight
-            ? "border-white/30 border-t-white"
-            : "border-black/30 border-t-black"
-        } rounded-full animate-spin mb-4`}
-      ></div>
+      {/* Animated Icon */}
+      <div className="relative mb-6">
+        <div
+          className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl transition-all duration-500 ${
+            isNight
+              ? "bg-white/10 backdrop-blur-sm"
+              : "bg-black/5 backdrop-blur-sm"
+          }`}
+        >
+          <span className="animate-bounce">{steps[step].icon}</span>
+        </div>
+        <div
+          className={`absolute inset-0 rounded-full border-2 ${
+            isNight ? "border-white/20" : "border-black/20"
+          }`}
+          style={{
+            clipPath: `polygon(0 0, ${progress}% 0, ${progress}% 100%, 0 100%)`,
+            borderColor: isNight ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.6)",
+          }}
+        ></div>
+      </div>
+
+      {/* Step Text */}
       <p
-        className={`${textColor} opacity-70 font-light animate-pulse transition-all duration-500`}
+        className={`${textColor} text-lg font-medium mb-2 transition-all duration-500`}
       >
         {steps[step].text}
       </p>
       <p
-        className={`text-xs ${textColor} opacity-50 mt-2 font-light transition-all duration-500`}
+        className={`text-sm ${textColor} opacity-60 font-light transition-all duration-500 text-center max-w-xs`}
       >
         {steps[step].sub}
       </p>
 
-      {/* Progress Dots */}
-      <div className="flex gap-1 mt-4">
-        {steps.map((_, i) => (
+      {/* Progress Bar */}
+      <div className={`w-64 h-1 rounded-full mt-6 ${isNight ? "bg-white/10" : "bg-black/10"}`}>
+        <div
+          className={`h-full rounded-full transition-all duration-100 ${
+            isNight ? "bg-white/60" : "bg-black/60"
+          }`}
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+
+      {/* Step Indicators */}
+      <div className="flex gap-2 mt-6">
+        {steps.map((s, i) => (
           <div
             key={i}
-            className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
-              i === step
-                ? isNight
-                  ? "bg-white"
-                  : "bg-black"
-                : isNight
-                ? "bg-white/20"
-                : "bg-black/20"
+            className={`flex flex-col items-center gap-1 transition-all duration-300 ${
+              i === step ? "scale-110" : "scale-100 opacity-40"
             }`}
-          />
+          >
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
+                i <= step
+                  ? isNight
+                    ? "bg-white/20 text-white"
+                    : "bg-black/20 text-black"
+                  : isNight
+                  ? "bg-white/5 text-white/40"
+                  : "bg-black/5 text-black/40"
+              }`}
+            >
+              {s.icon}
+            </div>
+          </div>
         ))}
       </div>
     </div>
