@@ -27,7 +27,6 @@ Fourcast is a Next.js-based weather edge analysis platform that combines real-ti
 ### 4. **Reliability**
 - Comprehensive error handling
 - Fallback mechanisms
-- Circuit breaker patterns
 - Health check endpoints
 
 ## Core Architecture
@@ -77,26 +76,6 @@ app/
 └── discovery/           # Market discovery features
 ```
 
-### State Management
-
-**Client-Side State:**
-```javascript
-// React useState hooks for component state
-const [weatherData, setWeatherData] = useState(null);
-const [selectedMarket, setSelectedMarket] = useState(null);
-const [analysis, setAnalysis] = useState(null);
-
-// Validation state with performance hooks
-const locationValidation = useLocationValidation(eventType, location);
-const weatherValidation = useWeatherValidation(weatherData);
-```
-
-**Server-Side State:**
-- Redis caching for API responses
-- Session-based user data
-- SQLite for signal persistence
-- Static generation where applicable
-
 ### Performance Optimizations
 
 1. **Code Splitting**
@@ -110,11 +89,6 @@ const weatherValidation = useWeatherValidation(weatherData);
    // Redis server-side caching
    // Next.js built-in caching
    ```
-
-3. **Optimistic Updates**
-   - Immediate UI feedback
-   - Rollback on errors
-   - Progressive enhancement
 
 ## Backend Architecture
 
@@ -133,14 +107,6 @@ GET  /api/signals          # List latest signals
 GET  /api/leaderboard      # Reputation leaderboard
 GET  /api/profile          # User profile
 GET  /api/predictions/health # Health check
-```
-
-**Validation Endpoints:**
-```
-POST /api/validate/location       # Location validation
-POST /api/validate/weather        # Weather data validation
-POST /api/validate/order          # Order validation
-POST /api/validate/market-compatibility # Market compatibility
 ```
 
 ### Service Layer
@@ -233,23 +199,59 @@ Venice AI → AnalysisService → Cache → Frontend
 }
 ```
 
-**Signal Object (Off-chain demo model):**
-```javascript
-{
-  id: "eventId-timestamp",
-  event_id: "market.tokenID",
-  market_title: "Title",
-  venue: "City, Region",
-  event_time: 1732300000,
-  market_snapshot_hash: "sha256(...)",
-  weather_json: { /* compact weather metrics */ },
-  ai_digest: "Concise reasoning",
-  confidence: "HIGH|MEDIUM|LOW",
-  odds_efficiency: "INEFFICIENT|EFFICIENT",
-  author_address: "0x...",
-  tx_hash: null, // Filled when Aptos transaction completes
-  timestamp: 1732300100
+## Venice AI Integration Fixes
+
+### Root Causes & Solutions
+
+#### 1. Unsupported `response_format` Parameter ❌
+```
+response_format: { type: "json_object" }
+```
+Venice AI doesn't support this OpenAI parameter.
+
+**Solution:** Remove the parameter and use prompt engineering instead
+
+#### 2. Wrong `enable_web_search` Type ❌
+```
+venice_parameters: {
+  enable_web_search: true // Boolean causes 400 error
 }
+```
+Venice requires string `"auto"`, not boolean `true`.
+
+**Solution:** Use string value
+```
+venice_parameters: {
+  enable_web_search: "auto" // String "auto", not boolean true
+}
+```
+
+#### 3. Invalid Parameters ❌
+```
+venice_parameters: {
+  enable_web_search: "auto",
+  include_venice_system_prompt: true, // Doesn't exist
+  strip_thinking_response: true // Doesn't exist
+}
+```
+These parameters don't exist in Venice API.
+
+**Solution:** Only use valid parameters
+```
+venice_parameters: {
+  enable_web_search: "auto" // Only this is valid
+}
+```
+
+#### 4. Wrong Model Choice ❌
+```
+model: "qwen3-235b" // Outputs thinking tags that break JSON parsing
+```
+`qwen3-235b` outputs thinking tags that break JSON parsing.
+
+**Solution:** Use `llama-3.3-70b` for clean JSON output
+```
+model: "llama-3.3-70b" // Clean JSON output
 ```
 
 ## Integration Patterns
@@ -268,18 +270,6 @@ const retryWithBackoff = async (fn, maxRetries = 3) => {
     }
   }
 };
-```
-
-**Circuit Breaker:**
-```javascript
-class CircuitBreaker {
-  constructor(threshold = 5, timeout = 60000) {
-    this.failureThreshold = threshold;
-    this.timeout = timeout;
-    this.failureCount = 0;
-    this.state = 'CLOSED';
-  }
-}
 ```
 
 ### Error Handling
@@ -309,42 +299,7 @@ class CircuitBreaker {
 2. API route validation (security)
 3. Service-level validation (business rules)
 
-**Validation Framework:**
-```javascript
-// Location Validator
-export class LocationValidator {
-  static validateLocation(eventType, location, context) {
-    return {
-      valid: true/false,
-      errors: [],
-      warnings: [],
-      suggestions: []
-    };
-  }
-}
-```
-
-### Authentication & Authorization
-
-**Current Implementation:**
-- Wallet-based authentication (ConnectKit for trading, Petra for signals)
-- API key management for external services
-- Environment variable protection
-
-**Future Enhancements:**
-- JWT token-based auth
-- Role-based access control
-- API rate limiting per user
-
 ## Multi-Platform Integration
-
-### Polymarket Integration
-
-**Data Flow:**
-1. Fetch active markets from Polymarket API
-2. Filter for weather-sensitive markets
-3. Normalize data to internal Market model
-4. Cache results for performance
 
 ### Kalshi Integration
 
@@ -361,12 +316,6 @@ export class LocationValidator {
    - Applies filters to both platforms
    - Returns unified market list with `platform` field
 
-3. **`app/markets/page.js`** (Enhanced)
-   - **Platform Badge**: Visual indicator (Polymarket = Blue, Kalshi = Green)
-   - **Volume Display**: Adapts format (Polymarket = $XK, Kalshi = X Vol)
-   - **Platform Filter**: Dropdown in Discovery tab (All/Polymarket/Kalshi)
-   - **Client-side Filtering**: Filters markets by platform selection
-
 ### Platform Differentiation Features
 - **Polymarket**: Blue badge (`bg-blue-900/40`)
 - **Kalshi**: Green/Emerald badge (`bg-emerald-900/40`)
@@ -380,11 +329,56 @@ export class LocationValidator {
 1. **Web Search Integration**: Enables `enable_web_search: "auto"` for real-time data
 2. **Proper Model Selection**: Uses `llama-3.3-70b` for clean JSON output (avoids `qwen3-235b` thinking tags)
 3. **Robust Error Handling**: Implements fallback strategies
-4. **Intelligent Caching**: Dynamic TTL based on event timing
 
-**Multi-Phase Analysis Pipeline:**
+## On-Chain Signal Architecture
+
+### Aptos Integration Pattern
+
+**Decision Rationale:**
+- ✅ **Security**: No private keys in backend
+- ✅ **Accountability**: Signals tied to user addresses (reputation building)
+- ✅ **Simplicity**: Wallet handles all cryptographic operations
+- ✅ **Cost Distribution**: Users pay gas fees (~$0.0001 per signal)
+- ✅ **Decentralization**: True ownership of published signals
+
+### Progressive Enhancement Pattern
+
+**Flow:**
+1. Signal saves to SQLite → Immediate success ✅
+2. Aptos publish (async) → On-chain proof 🔗
+3. If Aptos fails → Signal still exists, can retry 🔄
+4. Update SQLite with tx_hash → Link local + blockchain 🎯
+
+### Move Module Design
+
+**Signal Storage Model:**
+```move
+struct Signal has store, drop, copy {
+    event_id: String,
+    market_title: String,
+    venue: String,
+    event_time: u64,
+    market_snapshot_hash: String,
+    weather_json: String,
+    ai_digest: String,
+    confidence: String,
+    odds_efficiency: String,
+    author_address: address,
+    timestamp: u64,
+}
+
+struct SignalRegistry has key {
+    signals: Table<String, Signal>,
+    signal_count: u64,
+}
 ```
-User Selects Event
-       ↓
-Phase 1: Fixture Metadata Extraction (Web Search)
-       ↓
+
+### Dual Wallet UX
+
+- **Trading Wallet**: MetaMask/ConnectKit (for trading operations)
+- **Signals Wallet**: Petra/Aptos (for publishing signals)
+- Clear visual distinction between the two wallets
+
+---
+
+_Architecture Guide - Last updated: November 2024_

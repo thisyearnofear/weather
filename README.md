@@ -70,12 +70,9 @@ npm run build
 ## 📚 Documentation
 
 - [Setup Guide](./docs/SETUP_GUIDE.md) - Installation, configuration and Aptos integration
-- [Core Architecture](./docs/CORE_ARCHITECTURE.md) - System design and patterns
-- [Integration Guide](./docs/INTEGRATION_GUIDE.md) - Multi-platform integration details
-- [API Endpoints](./docs/API_ENDPOINTS.md) - Complete API documentation
-- [Product Roadmap](./docs/PRODUCT_ROADMAP.md) - Feature roadmap and planning
-- [Technical Implementation](./docs/TECHNICAL_IMPLEMENTATION.md) - Key fixes and implementation details
-- [Validation Guide](./docs/VALIDATION_GUIDE.md) - Validation framework and testing
+- [Architecture Guide](./docs/ARCHITECTURE_GUIDE.md) - System design and patterns
+- [Integration Guide](./docs/INTEGRATION_GUIDE.md) - Multi-platform integration and Venice AI analysis
+- [API Reference](./docs/API_REFERENCE.md) - Complete API documentation and product roadmap
 
 ## 🌐 Endpoints
 

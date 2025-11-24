@@ -1,34 +1,229 @@
-Phase 2: Location Verification (Web Search)
-       ↓
-Phase 3: Weather Data Fetching
-       ↓
-Phase 4: AI Analysis (Web Search + Weather Context)
-       ↓
-Phase 5: Response Formatting & Caching
+# Integration Guide - Fourcast Weather Edge Analysis
+
+## Venice AI Analysis Output - Deep Reasoning Testing Results
+
+### Current Configuration
+
+**Model:** `llama-3.3-70b`
+**Web Search:** ✅ Enabled (`enable_web_search: "auto"`)
+**Deep Reasoning:** ❌ NOT enabled
+**Temperature:** 0.3 (deterministic, factual)
+**Max Tokens:** 1000 per response
+
+### Testing Results: Llama 3.3 70B vs Qwen3-235B
+
+#### ✅ LLAMA 3.3 70B (Current Setup)
+
+**Performance:**
+- Response Time: **7.5 seconds**
+- Analysis Length: **499 characters**
+- Key Factors: 5 identified
+- Cost: **~$0.01 per analysis**
+- Margin: **98%+**
+
+**Output Quality:**
+- ✅ Clean, parseable JSON immediately
+- ✅ Fast enough for good UX (< 10s)
+- ✅ Real-time web search data included
+- ✅ Event-specific analysis (not templated)
+- ❌ Generic key factors ("Rainy conditions", "Wind speed", "Home-field advantage")
+- ❌ No causal reasoning shown ("No" for logical connectors like "because", "due to")
+
+#### ❌ QWEN3-235B with `strip_thinking_response: true` (BROKEN)
+
+**Status:** Failed to parse JSON
+
+**Issue:** The `strip_thinking_response` parameter doesn't work as expected. Instead of stripping thinking tags, it returned plain text analysis without the JSON wrapper.
+
+**Why it failed:**
+- Venice's documentation lists `strip_thinking_response` as a valid parameter
+- However, it appears to remove the JSON structure entirely on Qwen3-235B
+- The model reverts to natural language explanations instead of structured JSON
+- **This parameter doesn't work as a simple strip — it fundamentally changes the output format**
+
+#### ✅ QWEN3-235B with `disable_thinking: true` (WORKS WELL)
+
+**Performance:**
+- Response Time: **66.8 seconds** (8.9x slower than Llama)
+- Analysis Length: **627 characters** (25% longer)
+- Key Factors: 5 identified (ALL SPECIFIC)
+- Cost: **~$0.03 per analysis** (3x more expensive)
+- Margin: **85%+**
+
+**Output Quality:**
+- ✅ Clean, parseable JSON
+- ✅ **MUCH more specific key factors** (statistics, percentages, comparisons)
+- ✅ **Includes causal reasoning** ("will affect", "impacting")
+- ✅ **Deeper market analysis** (references odds explicitly in recommendation)
+- ✅ Better odds assessment and positioning
+- ❌ **Significantly slower** (9x slower = poor UX for real-time analysis)
+- ❌ **Higher cost** (3x more expensive)
+
+### Reasoning Model Options Evaluated
+
+#### ❌ `strip_thinking_response: true` (DO NOT USE)
+- Doesn't strip tags, breaks JSON output
+- Returns natural language instead of structured JSON
+- Venice documentation is misleading on this parameter
+
+#### ✅ `disable_thinking: true` (WORKS)
+- Maintains JSON structure
+- Prevents `thinking` tag generation
+- High-quality output but slow
+- 3x cost increase
+- Better for non-time-critical analysis
+
+### ⚠️ DeepSeek R1 (Not Tested - Retired)
+
+**Why It Wasn't Tested:**
+
+Venice officially retired DeepSeek R1 from their web interface (May 2025 announcement). Reasons:
+
+1. **Performance**: 60+ second response times (worse than Qwen3-235B's 67s)
+2. **Adoption**: Only 5% of users selected it despite consuming 2/3 of GPU resources
+3. **Cost**: More expensive than alternatives without better output quality
+4. **UX**: Slow responses don't justify marginal quality gains
+
+**Status**: Still available via API, but Venice's official position is **not recommended** for customer-facing applications.
+
+**Better Alternative**: Qwen3-235B with `disable_thinking: true` provides similar reasoning quality with slightly faster response times and broader support.
+
+## Cost Implications for Credit System
+
+### Llama 3.3 70B Pricing
+- **Base cost:** ~$0.01 per analysis
+- **Margin at $1 = 10 credits:** 98%+
+
+### Qwen3-235B Pricing
+- **Base cost:** ~$0.03 per analysis (3x higher)
+- **Margin at $1 = 5 credits:** 85%+
+
+## Recommendation for Your Charging System
+
+### OPTION A: Stick with Llama 3.3 70B (RECOMMENDED FOR MVP) ⭐⭐⭐
+```
+Pricing: $1 = 10 credits
+Cost per analysis: ~$0.01
+Margin: 98%+
+
+✓ Fast response (7.5s - good UX)
+✓ Extremely profitable
+✓ Reliable JSON output
+✓ Works now without changes
+✓ Good enough quality for MVP
+✗ Less specific analysis
+✗ No causal reasoning
 ```
 
-### Venue Extraction System
+**Implementation:** No changes needed. Current setup is production-ready.
 
-**Purpose**: Extract event venue locations from sports markets to enable `/ai` page event-weather analysis.
+---
 
-**Venue Extraction Methods:**
-1. **Team-to-City Mapping**: ~65% success rate for major sports teams
-2. **Title Pattern Matching**: ~40% success for "@ City" or "in City" patterns
-3. **Stadium Name Mapping**: Dedicated stadium-to-city mapping for common venues
-4. **Description Parsing**: ~10% success rate for venue info in descriptions
+### OPTION B: Switch to Qwen3-235B (BEST QUALITY) ⭐⭐
+```
+Pricing: $1 = 5 credits (or $1 = 3 credits for tighter margin)
+Cost per analysis: ~$0.03
+Margin: 85%+
 
-**Integration with Market Analysis:**
+✓ Much more specific analysis
+✓ 25% longer responses
+✓ Includes statistical backing
+✓ Causal reasoning visible
+✗ 8.9x slower (67s vs 7.5s)
+✗ Poor UX for time-sensitive predictions
+✗ Lower margins
+```
+
+**When to use:** Deep analysis tier, research mode, premium tier
+
+**Implementation Required:**
 ```javascript
-// In polymarketService.js - Event Weather Mode
-if (analysisType === 'event-weather') {
-  const eventLocation = VenueExtractor.extractFromMarket(market);
-  const eventWeather = await weatherService.getCurrentWeather(eventLocation);
-  edgeScore = assessMarketWeatherEdge(market, eventWeather);
-  return { eventLocation, eventWeather, edgeScore };
+// In aiService.server.js callVeniceAI function
+const veniceParams = {
+  enable_web_search: 'auto',
+  disable_thinking: true  // ← CRITICAL for Qwen3-235B
+};
+
+const response = await client.chat.completions.create({
+  model: mode === 'deep' ? 'qwen3-235b' : 'llama-3.3-70b',
+  max_tokens: mode === 'deep' ? 2000 : 1000,
+  venice_parameters: veniceParams,
+  // ... rest of config
+});
+```
+
+---
+
+### OPTION C: Hybrid Tier System (FUTURE ENHANCEMENT) ⭐⭐⭐⭐
+```
+Basic Analysis: Llama 3.3 70B
+  → 1 credit per analysis
+  → Fast (7.5s)
+  → Cost to you: $0.01
+
+Deep Analysis: Qwen3-235B
+  → 5 credits per analysis
+  → Slow (67s) but detailed
+  → Cost to you: $0.03
+
+User chooses per analysis
+```
+
+**Benefits:**
+- ✓ Flexibility meets different needs
+- ✓ Maximize revenue from power users
+- ✓ Cater to casual vs serious predictors
+- ✗ More complex implementation
+- ✗ Need to manage two models in production
+
+**Suggested Pricing:**
+- $1 = 10 credits
+- Basic analysis = 1 credit ($0.10)
+- Deep analysis = 5 credits ($0.50)
+- Whitelist gets unlimited basic
+
+## What Changed (Previously Documented)
+
+Previously we noted:
+- ❌ Deep reasoning was "difficult to implement"
+- ❌ Qwen3-235B option was considered but abandoned
+
+After testing:
+- ✅ Deep reasoning IS implementable (just use `disable_thinking: true`)
+- ✅ The challenge was handling `thinking` tags, not the model itself
+- ✅ Quality improvement is substantial (100% vs 20% specific factors)
+- ✅ Trade-off is acceptable: 8.9x slower but 25% better analysis
+
+## Summary & Recommendation
+
+**For MVP (Now):**
+- Keep Llama 3.3 70B
+- Charge $1 = 10 credits
+- Users get good analysis in 7.5s
+- You keep 98%+ margin
+- **Recommended: Deploy as-is**
+
+**For v2 (After MVP):**
+- Add Qwen3-235B as "Deep Analysis" tier
+- Charge $1 = 10 credits (1 basic or 2 deep analyses)
+- Give users choice per analysis
+- Better monetization + quality
+
+**Critical Implementation Note:**
+If you ever switch to Qwen3-235B, use:
+```javascript
+venice_parameters: {
+  enable_web_search: 'auto',
+  disable_thinking: true  // ← MUST use this, not strip_thinking_response
 }
 ```
 
+The `strip_thinking_response` parameter breaks JSON output on Qwen3-235B. Use `disable_thinking` instead.
+
+## Integration Architecture
+
 ### /ai vs /discovery Differentiation
+The `/ai` and `/discovery` pages use different analysis modes:
 
 **/ai Page (Event Weather Analysis):**
 - `analysisType: 'event-weather'`
@@ -43,19 +238,43 @@ if (analysisType === 'event-weather') {
 - Scores by market efficiency (volume, liquidity, volatility)
 - Browses all market categories globally
 
-## On-Chain Signal Architecture
+### Data Flow Comparison
 
-### Aptos Integration Pattern
+**Event Weather Analysis Flow:**
+```
+Markets → Extract Event Venue → Get Venue Weather → Score by Weather + Odds
+(Always shows event-relevant results)
+```
 
-**Architecture Pattern: User Wallet Connection**
+**Global Discovery Flow:**
+```
+All Markets → Score by Volume/Liquidity/Volatility → Rank & Return
+(Always shows high-volume results, location-agnostic)
+```
 
-**Decision Rationale:**
-- ✅ **Security**: No private keys in backend
-- ✅ **Accountability**: Signals tied to user addresses (reputation building)
-- ✅ **Simplicity**: Wallet handles all cryptographic operations
-- ✅ **Cost Distribution**: Users pay gas fees (~$0.0001 per signal)
-- ✅ **Decentralization**: True ownership of published signals
-- ✅ **Risk Mitigation**: Minimize backend complexity for first deployment
+## Signal Publishing Implementation
+
+### ✅ Completed Tasks
+
+1. **Aptos Provider Integration**
+   - Wrapped application in `AptosProvider` in `app/layout.js`
+   - Enables Aptos wallet connectivity across the entire app
+
+2. **Dual Wallet UX**
+   - Updated `app/markets/page.js` header
+   - Added "Trading" wallet (MetaMask/ConnectKit)
+   - Added "Signals" wallet (Petra/Aptos)
+   - Clear visual distinction between the two
+
+3. **Signal Publishing Logic**
+   - Implemented "Progressive Enhancement" flow:
+     1. **Save to SQLite**: Immediate local save (fast feedback)
+     2. **Publish to Aptos**: If wallet connected, sign & submit transaction
+     3. **Link Records**: Update SQLite record with Aptos `tx_hash`
+
+4. **Backend Updates**
+   - Added `updateSignalTxHash` to `services/db.js`
+   - Added `PATCH /api/signals` endpoint to handle hash updates
 
 ### Progressive Enhancement Pattern
 
@@ -71,201 +290,56 @@ if (analysisType === 'event-weather') {
 - Retry mechanism (recover from failures)
 - Best UX (fast + reliable)
 
-### Move Module Design
+### Kalshi Integration
 
-**Signal Storage Model:**
-```move
-struct Signal has store, drop, copy {
-    event_id: String,
-    market_title: String,
-    venue: String,
-    event_time: u64,
-    market_snapshot_hash: String,
-    weather_json: String,
-    ai_digest: String,
-    confidence: String,
-    odds_efficiency: String,
-    author_address: address,
-    timestamp: u64,
-}
+#### Core Components
 
-struct SignalRegistry has key {
-    signals: Table<String, Signal>,
-    signal_count: u64,
-}
-```
+1. **`services/kalshiService.js`**
 
-**Event Emissions:**
-```move
-#[event]
-struct SignalPublished has drop, store {
-    signal_id: String,
-    event_id: String,
-    author: address,
-    timestamp: u64,
-    confidence: String,
-    odds_efficiency: String,
-}
-```
+   - Fetches weather markets from Kalshi's public API
+   - Supports 4 weather series: NYC, Chicago, Miami, Austin
+   - Normalizes Kalshi data to match our internal `Market` model
+   - Handles platform-specific data (prices in cents, volume in contracts)
 
-### Dual Wallet UX
+2. **`app/api/markets/route.js`** (Enhanced)
 
-- **Trading Wallet**: MetaMask/ConnectKit (for trading operations)
-- **Signals Wallet**: Petra/Aptos (for publishing signals)
-- Clear visual distinction between the two wallets
+   - Aggregates data from both Polymarket and Kalshi
+   - Merges results and sorts by volume
+   - Applies filters to both platforms
+   - Returns unified market list with `platform` field
 
-## Validation Framework
+3. **`app/markets/page.js`** (Enhanced)
+   - **Platform Badge**: Visual indicator (Polymarket = Blue, Kalshi = Green)
+   - **Volume Display**: Adapts format (Polymarket = $XK, Kalshi = X Vol)
+   - **Platform Filter**: Dropdown in Discovery tab (All/Polymarket/Kalshi)
+   - **Client-side Filtering**: Filters markets by platform selection
 
-### Core Principles
-- **User-Centric Validation**: Actionable feedback with real-time guidance
-- **Performance-First Design**: Smart caching and debounced validation
-- **Extensible Architecture**: Modular validators and reusable components
+### Date-First UI Implementation
 
-### Validation Hierarchy
-```
-┌─────────────────────────────────────┐
-│       Validation Orchestrator       │
-├─────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  │
-│  │  Location   │  │   Weather   │  │
-│  │ Validator   │  │  Validator  │  │
-│  └─────────────┘  └─────────────┘  │
-│  ┌─────────────┐  ┌─────────────┐  │
-│  │   Market    │  │   Trading   │  │
-│  │ Validator   │  │  Validator  │  │
-│  └─────────────┘  └─────────────┘  │
-└─────────────────────────────────────┘
-```
+#### UI Redesign
+- **Before**: Search-based filter (search for teams/locations)
+- **After**: Date-based tabs showing upcoming events
+  - Today
+  - Tomorrow
+  - This Week
+  - Later
 
-### Performance Optimizations
-- **Smart Caching**: 5-minute cache for location, 3-minute for weather, 30-second for orders
-- **Debounced Validation**: 200ms for orders, 300ms for analysis, 500ms for location
-- **Request Cancellation**: Automatic cleanup of outdated validation requests
+#### State Changes
+Removed:
+- `sportsSearchText` / `setSportsSearchText`
+- `sportsMaxDays` / `setSportsMaxDays`
+- `includeFutures` / `setIncludeFutures`
 
-## Deployment Architecture
+Added:
+- `selectedDateRange` / `setSelectedDateRange` - controls which time period to show
 
-### Environment Strategy
+#### API Changes
+Date range maps to `maxDaysToResolution`:
+- "today" → 1 day
+- "tomorrow" → 2 days
+- "this-week" → 7 days
+- "later" → 60 days
 
-```
-Development → Staging → Production
-     ↓           ↓          ↓
-Local DB     Test DB     Production DB
-Local Redis  Test Redis  Production Redis
-Mock APIs    Sandbox APIs Live APIs
-```
+---
 
-### Infrastructure Requirements
-
-**Minimum Viable Setup:**
-- Next.js hosting (Vercel/Netlify)
-- Redis instance (Upstash/Redis Cloud)
-- Database (PostgreSQL/MongoDB)
-
-**Production Setup:**
-- Load balancer for scaling
-- CDN for static assets
-- Monitoring and alerting
-- Backup and disaster recovery
-
-## Monitoring & Observability
-
-### Health Checks
-
-**System Health Endpoint:**
-```javascript
-// /api/predictions/health
-{
-  status: "healthy",
-  services: {
-    weather: "operational",
-    market: "operational",
-    ai: "operational",
-    database: "operational"
-  },
-  timestamp: "2024-11-18T06:16:08.063Z"
-}
-```
-
-### Performance Metrics
-
-**Key Metrics:**
-- API response times
-- Error rates by endpoint
-- Cache hit ratios
-- User engagement metrics
-
-**Logging Strategy:**
-- Structured JSON logging
-- Contextual error information
-- Performance tracking
-- Security event logging
-
-## Scaling Considerations
-
-### Horizontal Scaling
-
-**Stateless API Design:**
-- All API routes are stateless
-- Session data in Redis/database
-- Independent service instances
-
-**Database Scaling:**
-- Read replicas for heavy queries
-- Connection pooling
-- Query optimization
-
-### Vertical Scaling
-
-**Resource Optimization:**
-- Efficient algorithms
-- Memory management
-- CPU utilization optimization
-
-## Development Best Practices
-
-### Code Organization
-
-**Service Layer Pattern:**
-```javascript
-// services/weatherService.js
-export class WeatherService {
-  static async getCurrentWeather(location) {
-    // Implementation
-  }
-}
-
-// In API routes
-import { WeatherService } from '@/services/weatherService';
-```
-
-**Component Composition:**
-```javascript
-// Reusable validation components
-<ValidationDisplay validation={validation} />
-<RiskIndicator riskLevel={risk} />
-<ValidationStatusBar {...validationStates} />
-```
-
-### Testing Strategy
-
-**Unit Tests:** Individual functions and components
-**Integration Tests:** API endpoint and service integration
-**E2E Tests:** Complete user workflows
-
-## Future Architecture Enhancements
-
-### Microservices Migration
-- Weather service separation
-- Market analysis service
-- AI processing service
-- User management service
-
-### Event-Driven Architecture
-- Real-time market updates
-- Weather alert system
-- User notification system
-
-### Advanced Caching
-- Multi-layer caching strategy
-- Predictive caching
-- Cache warming
+_Integration Guide - Last updated: November 2024_
