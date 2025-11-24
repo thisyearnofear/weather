@@ -57,7 +57,9 @@ export async function POST(request) {
       return Response.json({ success: false, error: res.error }, { status: 500 })
     }
 
-    return Response.json({ success: true, id })
+    const aiDigestHash = aiDigest ? createHash('sha256').update(String(aiDigest)).digest('hex') : null
+    const weatherHash = weather ? createHash('sha256').update(JSON.stringify(weather)).digest('hex') : null
+    return Response.json({ success: true, id, snapshotHash, aiDigestHash, weatherHash })
   } catch (error) {
     return Response.json({ success: false, error: error.message }, { status: 500 })
   }
@@ -96,4 +98,3 @@ export async function PATCH(request) {
     return Response.json({ success: false, error: error.message }, { status: 500 })
   }
 }
-

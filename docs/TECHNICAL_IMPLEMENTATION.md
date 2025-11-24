@@ -121,6 +121,64 @@ STRICT REQUIREMENTS:
 3. **`scripts/test-venice-models.js`** - Model comparison
 4. **`scripts/test-fixed-venice.js`** - Full integration test
 5. **`scripts/test-production-flow.js`** - End-to-end production test
+6. **`scripts/test-deep-reasoning.js`** - Initial deep reasoning comparison
+7. **`scripts/test-deep-reasoning-v2.js`** - Deep reasoning with proper parameters
+
+## Deep Reasoning Analysis (Tested January 2025)
+
+### Models Tested
+
+#### Llama 3.3 70B (Current Production ✅)
+- **Response Time**: 7.5 seconds
+- **Cost**: ~$0.01 per analysis
+- **Output**: Clean JSON, event-specific
+- **Key Factors**: Generic (1/5 specific)
+- **Reasoning**: No causal logic visible
+- **Status**: ✅ Production-ready
+
+#### Qwen3-235B with `strip_thinking_response: true` (❌ Broken)
+- **Issue**: Parameter breaks JSON output entirely
+- **Result**: Returns natural language instead of JSON
+- **Status**: ❌ Do not use this parameter combination
+
+#### Qwen3-235B with `disable_thinking: true` (⭐ Best Quality)
+- **Response Time**: 66.8 seconds (8.9x slower)
+- **Cost**: ~$0.03 per analysis (3x more expensive)
+- **Output**: Clean JSON with detailed analysis
+- **Key Factors**: 100% specific (includes statistics)
+- **Reasoning**: Includes causal logic ("will affect", "due to")
+- **Confidence**: HIGH vs MEDIUM
+- **Status**: ✅ Works well, suitable for "Deep Analysis" premium tier
+
+### Recommendations
+
+**For MVP (Now):**
+- Keep Llama 3.3 70B
+- Charge $1 = 10 credits
+- Margin: 98%+
+
+**For v2 (Enhanced):**
+- Add Qwen3-235B as optional "Deep Analysis" tier
+- Users choose per analysis
+- Cost: 5 credits per deep analysis
+
+**Critical Implementation Note:**
+If switching to Qwen3-235B:
+```javascript
+venice_parameters: {
+  enable_web_search: 'auto',
+  disable_thinking: true  // ← Use this, NOT strip_thinking_response
+}
+```
+
+### Why DeepSeek R1 Was Not Tested
+
+Venice officially retired DeepSeek R1 from their web interface (May 2025). Reasons from Venice blog:
+- **Too Slow**: 60+ second response times (poor UX)
+- **Low Adoption**: Only 5% of chats used it despite consuming 2/3 of GPU resources
+- **Better Alternatives**: Qwen3-235B with reasoning provides similar quality in less time
+
+While still available via API, it's not recommended for customer-facing applications.
 
 ## Test Results
 
@@ -180,6 +238,77 @@ Example Output:
 - **Smart Caching**: 5-minute cache for location, 3-minute for weather, 30-second for orders
 - **Debounced Validation**: 200ms for orders, 300ms for analysis, 500ms for location
 - **Request Cancellation**: Automatic cleanup of outdated validation requests
+
+## Market Data Enhancement Opportunity
+
+### Current Gap: Missing Market Microstructure Data
+
+**Problem**: Analysis prompts currently ignore market-specific data:
+- No bid/ask spread information
+- No order book depth or liquidity data
+- No volume metrics or trading velocity
+- No market maker activity
+
+**Impact**: AI analysis generates "generic" odds efficiency scores without understanding actual market conditions.
+
+### Recommended Enhancement
+
+**Data to Capture from Polymarket/Kalshi:**
+
+```javascript
+// Add to market analysis prompts
+const marketMicrostructure = {
+  spread: market.bid - market.ask,           // Spread size
+  spreadPercent: ((market.bid - market.ask) / market.ask) * 100,
+  liquidity: market.volume24h || market.volumeTotal,
+  depth: orderBook?.totalSize || null,       // Available orders at multiple price levels
+  priceMove: currentPrice - previousPrice,   // Recent price movement
+  volatility: calculateStandardDeviation(),  // Price volatility
+  makerCount: uniqueAddresses?.length || null // Maker diversity
+};
+```
+
+**Updated Prompt Example:**
+```
+MARKET MICROSTRUCTURE
+- Current Bid/Ask: ${market.bid} / ${market.ask}
+- Spread: ${spread.toFixed(2)}% (${spread.toFixed(4)} absolute)
+- 24h Volume: ${volume}
+- Order Book Depth: ${depth} contracts available
+- Price Volatility: ${volatility}%
+- Recent Price Action: ${movement > 0 ? 'UP' : 'DOWN'} ${Math.abs(movement)}%
+
+ODDDY_ASSESSMENT:
+Based on weather impact + market structure, odds appear:
+- OVERPRICED if weather impact is HIGH but spread is tight (efficient market)
+- UNDERPRICED if weather impact is HIGH and spread is wide (illiquid market)
+- FAIR if spread matches volatility expectations
+```
+
+### Benefits
+
+✅ **Better Mispricing Detection**: AI understands when wide spreads = illiquidity vs maker uncertainty  
+✅ **Market Context**: Recommendations account for execution difficulty  
+✅ **Liquidity Awareness**: Analysis factors in slippage for actual trades  
+✅ **Asymmetry Detection**: Identifies when bid/ask reflects market-specific vs fundamental uncertainty  
+
+### Implementation Checklist
+
+- [ ] Extend `polymarketService.getMarketDetails()` to capture bid/ask/volume
+- [ ] Extend `kalshiService.getMarketDetails()` to return market depth
+- [ ] Update `/api/analyze` to pass market data in prompt
+- [ ] Add market microstructure to `analyzeWeatherImpactServer()` function
+- [ ] Test with various market conditions (tight spreads, wide spreads, high volume, low volume)
+- [ ] Compare output quality before/after enhancement
+
+### Roadmap Placement
+
+**Phase 2 (Q1 2025):**
+- Integrate market microstructure data into analysis prompts
+- Improve odds efficiency scoring based on liquidity
+- Enhanced mispricing detection
+
+---
 
 ## Venue Extraction System
 

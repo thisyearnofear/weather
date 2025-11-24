@@ -274,6 +274,27 @@ export default function MarketsPage() {
   const handlePublishSignal = async () => {
     if (!selectedMarket || !analysis) return;
 
+    // Check if Aptos wallet is connected first
+    if (!aptosConnected) {
+      // Scroll to top where the connect button is
+      window.scrollTo({ top: 0, behavior: "smooth" });
+
+      // Show a helpful message
+      const shouldConnect = confirm(
+        "📡 Connect Aptos Wallet\n\n" +
+          "To publish your signal on-chain, you need to connect your Aptos wallet.\n\n" +
+          "Click OK to scroll to the top and connect your wallet."
+      );
+
+      if (shouldConnect) {
+        // Highlight the connect button area briefly
+        setTimeout(() => {
+          alert("👆 Click 'Connect Aptos Wallet' at the top right to continue");
+        }, 500);
+      }
+      return;
+    }
+
     try {
       // 1. Save to SQLite first (fast feedback)
       const response = await fetch("/api/signals", {
@@ -294,57 +315,53 @@ export default function MarketsPage() {
         return;
       }
 
-      // 2. Publish to Aptos (if wallet connected)
-      if (aptosConnected) {
-        const signalData = {
-          event_id: selectedMarket.marketID || selectedMarket.id,
-          market_title: selectedMarket.title || selectedMarket.question,
-          venue: selectedMarket.location || selectedMarket.eventLocation || "",
-          event_time: selectedMarket.resolutionDate
-            ? new Date(selectedMarket.resolutionDate).getTime() / 1000
-            : 0,
-          market_snapshot_hash: result.id, // Using SQLite ID as snapshot hash for now
-          weather_json: weatherData,
-          ai_digest: analysis.reasoning || analysis.analysis || "",
-          confidence: analysis.assessment?.confidence || "UNKNOWN",
-          odds_efficiency: analysis.assessment?.odds_efficiency || "UNKNOWN",
-        };
+      // 2. Publish to Aptos
+      const signalData = {
+        event_id: selectedMarket.marketID || selectedMarket.id,
+        market_title: selectedMarket.title || selectedMarket.question,
+        venue: selectedMarket.location || selectedMarket.eventLocation || "",
+        event_time: selectedMarket.resolutionDate
+          ? Math.floor(new Date(selectedMarket.resolutionDate).getTime() / 1000)
+          : 0,
+        market_snapshot_hash: result.snapshotHash || result.id,
+        weather_json: weatherData,
+        ai_digest: analysis.reasoning || analysis.analysis || "",
+        confidence: analysis.assessment?.confidence || "UNKNOWN",
+        odds_efficiency: analysis.assessment?.odds_efficiency || "UNKNOWN",
+        weather_hash: result.weatherHash || null,
+        ai_digest_hash: result.aiDigestHash || null,
+      };
 
-        const txHash = await publishToAptos(signalData);
+      const txHash = await publishToAptos(signalData);
 
-        if (txHash) {
-          // Update SQLite with tx_hash
-          await fetch("/api/signals", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: result.id,
-              tx_hash: txHash,
-            }),
-          });
-          try {
-            const c = await getMySignalCount();
-            setMySignalCount(c);
-          } catch {}
+      if (txHash) {
+        // Update SQLite with tx_hash
+        await fetch("/api/signals", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: result.id,
+            tx_hash: txHash,
+          }),
+        });
+        try {
+          const c = await getMySignalCount();
+          setMySignalCount(c);
+        } catch {}
 
-          alert(
-            `Signal published!\nSQLite ID: ${result.id}\nAptos TX: ${txHash}`
-          );
-        } else {
-          alert(
-            `Signal saved locally (ID: ${result.id})\nAptos publish failed: ${
-              publishError || "Unknown error"
-            }`
-          );
-        }
+        alert(
+          `✅ Signal published on-chain!\n\nLocal ID: ${result.id}\nAptos TX: ${txHash}`
+        );
       } else {
         alert(
-          `Signal saved locally (ID: ${result.id})\nConnect Aptos wallet to publish on-chain`
+          `⚠️ Signal saved locally (ID: ${
+            result.id
+          })\n\nAptos publish failed: ${publishError || "Unknown error"}`
         );
       }
     } catch (err) {
       console.error("Failed to publish signal:", err);
-      alert("Failed to publish signal");
+      alert("❌ Failed to publish signal");
     }
   };
 
@@ -781,6 +798,7 @@ function SportsTabContent({
               isAnalyzing={isAnalyzing}
               selectedMarket={selectedMarket}
               onPublishSignal={onPublishSignal}
+              aptosConnected={aptosConnected}
             />
           ))}
         </div>
@@ -1162,6 +1180,7 @@ function DiscoveryTabContent({
                   isAnalyzing={isAnalyzing}
                   selectedMarket={selectedMarket}
                   onPublishSignal={onPublishSignal}
+                  aptosConnected={aptosConnected}
                 />
               ))}
             </div>
@@ -1195,6 +1214,7 @@ function MarketCard({
   isAnalyzing,
   selectedMarket,
   onPublishSignal,
+  aptosConnected,
 }) {
   const isHidden = expandedMarketId && !isExpanded;
   const isCurrentMarket =
@@ -1430,12 +1450,21 @@ function MarketCard({
               }`}
             >
               <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-1 h-1 rounded-full ${isNight ? "bg-white/40" : "bg-black/40"}`}></div>
+                <div
+                  className={`mt-0.5 w-1 h-1 rounded-full ${
+                    isNight ? "bg-white/40" : "bg-black/40"
+                  }`}
+                ></div>
                 <div>
-                  <p className={`text-xs ${textColor} opacity-60 font-light leading-relaxed`}>
-                    <span className="opacity-80">Informational purposes only.</span> This analysis is not financial advice. 
-                    Weather-based predictions are probabilistic and should be combined with your own research. 
-                    Trade responsibly.
+                  <p
+                    className={`text-xs ${textColor} opacity-60 font-light leading-relaxed`}
+                  >
+                    <span className="opacity-80">
+                      Informational purposes only.
+                    </span>{" "}
+                    This analysis is not financial advice. Weather-based
+                    predictions are probabilistic and should be combined with
+                    your own research. Trade responsibly.
                   </p>
                 </div>
               </div>
@@ -1447,37 +1476,65 @@ function MarketCard({
             >
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-xl">📡</span>
-                <h4
-                  className={`text-sm font-medium ${textColor}`}
-                >
+                <h4 className={`text-sm font-medium ${textColor}`}>
                   What are Signals?
                 </h4>
               </div>
-              <p className={`text-sm ${textColor} opacity-80 font-light leading-relaxed mb-3`}>
-                Signals are on-chain records of your predictions. When you publish a signal, 
-                you're creating a permanent, timestamped record of your analysis on the blockchain.
+              <p
+                className={`text-sm ${textColor} opacity-80 font-light leading-relaxed mb-3`}
+              >
+                Signals are on-chain records of your predictions. When you
+                publish a signal, you're creating a permanent, timestamped
+                record of your analysis on the blockchain.
               </p>
               <div className="grid grid-cols-1 gap-2">
                 <div className="flex items-start gap-2">
                   <span className={`text-xs ${textColor} opacity-60`}>✓</span>
                   <p className={`text-xs ${textColor} opacity-70 font-light`}>
-                    <strong className="font-medium">Build your track record</strong> - Prove your prediction accuracy over time
+                    <strong className="font-medium">
+                      Build your track record
+                    </strong>{" "}
+                    - Prove your prediction accuracy over time
                   </p>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className={`text-xs ${textColor} opacity-60`}>✓</span>
                   <p className={`text-xs ${textColor} opacity-70 font-light`}>
-                    <strong className="font-medium">Transparent & verifiable</strong> - Anyone can verify your predictions on-chain
+                    <strong className="font-medium">
+                      Transparent & verifiable
+                    </strong>{" "}
+                    - Anyone can verify your predictions on-chain
                   </p>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className={`text-xs ${textColor} opacity-60`}>✓</span>
                   <p className={`text-xs ${textColor} opacity-70 font-light`}>
-                    <strong className="font-medium">Own your insights</strong> - Your signals are stored on Aptos blockchain
+                    <strong className="font-medium">Own your insights</strong> -
+                    Your signals are stored on Aptos blockchain
                   </p>
                 </div>
               </div>
             </div>
+
+            {/* Wallet Connection Prompt (if not connected) */}
+            {!aptosConnected && (
+              <div
+                className={`${cardBgColor} backdrop-blur-sm border rounded-xl p-4 flex items-center gap-3 ${
+                  isNight ? "border-orange-400/30" : "border-orange-600/30"
+                }`}
+              >
+                <span className="text-2xl">👆</span>
+                <div className="flex-1">
+                  <p className={`text-sm ${textColor} font-medium mb-1`}>
+                    Connect your Aptos wallet to publish
+                  </p>
+                  <p className={`text-xs ${textColor} opacity-70 font-light`}>
+                    Click "Connect Aptos Wallet" in the header above to publish
+                    your signal on-chain
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Action Buttons: Trade + Publish */}
             <div className="flex gap-3 pt-2">
@@ -1501,13 +1558,19 @@ function MarketCard({
 
               <button
                 onClick={onPublishSignal}
-                className={`flex-1 px-6 py-3 rounded-2xl font-light text-sm transition-all border ${
-                  isNight
-                    ? "bg-green-500/20 hover:bg-green-500/30 text-green-200 border-green-400/30"
-                    : "bg-green-400/20 hover:bg-green-400/30 text-green-800 border-green-500/30"
+                className={`flex-1 px-6 py-3 rounded-2xl font-light text-sm transition-all border relative ${
+                  aptosConnected
+                    ? isNight
+                      ? "bg-green-500/20 hover:bg-green-500/30 text-green-200 border-green-400/30"
+                      : "bg-green-400/20 hover:bg-green-400/30 text-green-800 border-green-500/30"
+                    : isNight
+                    ? "bg-orange-500/20 hover:bg-orange-500/30 text-orange-200 border-orange-400/30"
+                    : "bg-orange-400/20 hover:bg-orange-400/30 text-orange-800 border-orange-500/30"
                 }`}
               >
-                📡 Publish Signal
+                {aptosConnected
+                  ? "📡 Publish Signal"
+                  : "🔗 Connect & Publish Signal"}
               </button>
             </div>
           </div>
@@ -1549,14 +1612,14 @@ function LoadingAnalysisState({ isNight, textColor }) {
     const stepInterval = setInterval(() => {
       setStep((prev) => (prev + 1) % steps.length);
     }, 2500);
-    
+
     const progressInterval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) return 0;
         return prev + 1;
       });
     }, 100);
-    
+
     return () => {
       clearInterval(stepInterval);
       clearInterval(progressInterval);
@@ -1600,7 +1663,11 @@ function LoadingAnalysisState({ isNight, textColor }) {
       </p>
 
       {/* Progress Bar */}
-      <div className={`w-64 h-1 rounded-full mt-6 ${isNight ? "bg-white/10" : "bg-black/10"}`}>
+      <div
+        className={`w-64 h-1 rounded-full mt-6 ${
+          isNight ? "bg-white/10" : "bg-black/10"
+        }`}
+      >
         <div
           className={`h-full rounded-full transition-all duration-100 ${
             isNight ? "bg-white/60" : "bg-black/60"
