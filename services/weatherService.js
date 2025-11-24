@@ -5,7 +5,9 @@ const IS_BROWSER = typeof window !== 'undefined';
 const USE_API_ROUTE = IS_BROWSER; // Only use API route in browser context
 const API_BASE = '/api';
 const WEATHER_API_BASE = 'https://api.weatherapi.com/v1';
-const API_KEY = process.env.NEXT_PUBLIC_WEATHER_API_KEY;
+
+// Get API key dynamically to support runtime env loading
+const getApiKey = () => process.env.NEXT_PUBLIC_WEATHER_API_KEY;
 
 // Demo data for when Vercel service is unavailable
 const getDemoWeatherData = (requestedLocation) => ({
@@ -181,8 +183,13 @@ export const weatherService = {
       } else {
         // Direct API call for local development
         console.log('Using direct API call for local development');
+        const apiKey = getApiKey();
+        if (!apiKey) {
+          console.warn('⚠️  NEXT_PUBLIC_WEATHER_API_KEY not set, using demo data');
+          return getDemoWeatherData(location);
+        }
         response = await axios.get(
-          `${WEATHER_API_BASE}/forecast.json?key=${API_KEY}&q=${location}&days=3&aqi=no&alerts=no&tz=${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+          `${WEATHER_API_BASE}/forecast.json?key=${apiKey}&q=${location}&days=3&aqi=no&alerts=no&tz=${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
           { timeout: 10000 }
         );
         

@@ -19,8 +19,9 @@ const callVeniceAI = async (params, options = {}) => {
     participants,
     title,
     isFuturesBet,
+    eventDate,
   } = params;
-  const { webSearch = false, showThinking = false } = options;
+  const { webSearch = true, showThinking = false } = options;
 
   // Configure Venice AI client
   const client = new OpenAI({
@@ -59,81 +60,113 @@ const callVeniceAI = async (params, options = {}) => {
   const messages = [
     {
       role: "system",
-      content: `You are an expert sports betting analyst specializing in weather impacts on game outcomes. You provide SPECIFIC, ACTIONABLE analysis with clear reasoning. Focus on:
+      content: `You are an expert sports betting analyst specializing in weather impacts on game outcomes. Provide SPECIFIC, ACTIONABLE analysis with clear reasoning.
 
-1. How specific weather conditions affect game dynamics (passing vs running, scoring, field conditions)
-2. Which team benefits more from these conditions and why
-3. Whether the current market odds properly reflect this weather edge
-4. Clear YES/NO/AVOID recommendation with rationale
-
-Be concise but specific. No generic advice.`,
+STRICT REQUIREMENTS:
+- Tailor analysis to the given sport and participants only
+- Do NOT reuse or reference any example content; generate event-specific analysis
+- You MUST respond with ONLY a valid JSON object, no other text before or after
+- Do NOT wrap the JSON in markdown code blocks
+- Output a single JSON object with the required fields only
+      `,
     },
 
     {
       role: "user",
-      content: `Analyze this prediction market for weather-driven betting opportunities:
+      content: `EVENT CONTEXT
+- Event Title: ${title || "Unknown"}
+- Event Type: ${eventType}
+- Participants: ${participantText || "Unknown"}
+- Venue: ${location?.name || location || "Unknown"}
+- Scheduled Date: ${
+        eventDate || weatherData?.forecast?.forecastday?.[0]?.date || "Unknown"
+      }
 
-MARKET: ${eventType}${participantText}
-LOCATION: ${location?.name || location || "Unknown"}
-GAME TIME: ${weatherData?.forecast?.forecastday?.[0]?.date || "Unknown"}
-
-WEATHER CONDITIONS:
+WEATHER
 - Temperature: ${
         weatherData?.current?.temp_f ||
         weatherData?.forecast?.forecastday?.[0]?.day?.avgtemp_f ||
         "unknown"
       }°F
-- Conditions: ${
+- Condition: ${
         weatherData?.current?.condition?.text ||
         weatherData?.forecast?.forecastday?.[0]?.day?.condition?.text ||
         "unknown"
       }
-- Precipitation: ${
+- Precipitation chance: ${
         weatherData?.current?.precip_chance ||
         weatherData?.forecast?.forecastday?.[0]?.day?.daily_chance_of_rain ||
         "0"
-      }% chance
+      }%
 - Wind: ${
         weatherData?.current?.wind_mph ||
         weatherData?.forecast?.forecastday?.[0]?.day?.maxwind_mph ||
         "0"
       } mph
 
-CURRENT MARKET ODDS: ${oddsText}
+MARKET ODDS: ${oddsText}
 
-Provide your analysis in this EXACT JSON format (replace the example values with your actual analysis):
-
-EXAMPLE (for a different game):
+RESPONSE FORMAT - You MUST respond with ONLY this JSON structure, no other text:
 {
-  "weather_impact": "HIGH",
-  "odds_efficiency": "UNDERPRICED",
-  "confidence": "MEDIUM",
-  "analysis": "Heavy rain (90% chance) and 15mph winds severely limit aerial attacks. Patriots' pass-heavy offense will struggle more than Steelers' ground game. Market underprices weather advantage by ~8%.",
-  "key_factors": ["Rain reduces passing completion by 12%", "Wind favors run-heavy teams", "Steelers ranked #3 in rushing"],
-  "recommended_action": "BET YES (Steelers) - Weather creates 8% edge for ground game"
+  "weather_impact": "LOW|MEDIUM|HIGH",
+  "odds_efficiency": "FAIR|OVERPRICED|UNDERPRICED|UNKNOWN",
+  "confidence": "LOW|MEDIUM|HIGH",
+  "analysis": "Event-specific reasoning only, no example content",
+  "key_factors": ["specific, measurable factors"],
+  "recommended_action": "Clear recommendation"
 }
 
-NOW analyze THIS game and return YOUR analysis in the same JSON format:`,
+Respond with ONLY the JSON object above. Do not include any text before or after the JSON.
+      `,
     },
   ];
 
   try {
     console.log("🤖 Calling Venice AI...");
+    
+    // Venice API parameters - CRITICAL: Use correct format
+    // - enable_web_search must be "auto" (string), not true (boolean)
+    // - response_format is NOT supported by Venice
+    // - strip_thinking_response is NOT a valid parameter
+    const veniceParams = {};
+    if (webSearch) {
+      veniceParams.enable_web_search = "auto"; // Must be string "auto", not boolean
+    }
+    
     const response = await client.chat.completions.create({
-      model: "qwen3-235b",
+      model: "llama-3.3-70b", // Changed from qwen3-235b - it outputs thinking tags
       messages,
       temperature: 0.3,
       max_tokens: 1000,
-      response_format: { type: "json_object" },
-      // Venice-specific parameters
-      venice_parameters: {
-        enable_web_search: webSearch ? "auto" : undefined,
-        strip_thinking_response: showThinking ? false : true,
-      },
+      // REMOVED: response_format - Venice doesn't support this
+      // Use prompt engineering instead (already in system message)
+      venice_parameters: Object.keys(veniceParams).length > 0 ? veniceParams : undefined,
     });
 
-    const content = response.choices[0].message.content;
-    console.log("🤖 Venice AI raw response:", content);
+    let content = response.choices[0].message.content;
+    console.log("🤖 Venice AI raw response:", content.substring(0, 200) + '...');
+
+    // Venice may include thinking tags or markdown - clean them
+    content = content.trim();
+    
+    // Remove thinking tags if present
+    if (content.includes('<think>')) {
+      const thinkEnd = content.lastIndexOf('</think>');
+      if (thinkEnd !== -1) {
+        content = content.substring(thinkEnd + 8).trim();
+      }
+    }
+    
+    // Remove markdown code blocks if present
+    if (content.startsWith('```')) {
+      content = content.replace(/```json\n?|\n?```/g, '').trim();
+    }
+    
+    // Extract JSON if there's text before/after
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      content = jsonMatch[0];
+    }
 
     const parsed = JSON.parse(content);
     console.log("🤖 Venice AI parsed response:", parsed);
@@ -152,8 +185,31 @@ NOW analyze THIS game and return YOUR analysis in the same JSON format:`,
       !parsed.key_factors[0]?.includes("Factor");
 
     if (!hasValidAnalysis || !hasValidFactors) {
-      console.warn("⚠️ AI returned invalid/template response, using fallback");
-      throw new Error("AI returned template instead of analysis");
+      console.warn(
+        "⚠️ AI returned invalid response, attempting correction with web search"
+      );
+      // Retry once with web search explicitly enabled
+      if (!options.__retry) {
+        const retry = await callVeniceAI(
+          {
+            eventType,
+            location,
+            weatherData,
+            currentOdds,
+            participants,
+            title,
+            isFuturesBet,
+            eventDate,
+          },
+          {
+            webSearch: true,
+            showThinking,
+            __retry: true,
+          }
+        );
+        return retry;
+      }
+      throw new Error("AI returned mismatched sport or template");
     }
 
     return {
@@ -193,7 +249,7 @@ const verifyEventLocation = async (title, eventType) => {
     // Step 1: Multivariate Analysis Prompt
     // We ask the model to perform two distinct tasks in one pass to cross-reference
     const response = await client.chat.completions.create({
-      model: "qwen3-235b",
+      model: "llama-3.3-70b", // Changed from qwen3-235b
       messages: [
         {
           role: "system",
@@ -205,17 +261,17 @@ const verifyEventLocation = async (title, eventType) => {
         3. Verify if this is a "Neutral Site" game (e.g. NFL in London, College Bowl Game).
         4. Return the confirmed location.
 
+        You MUST respond with ONLY valid JSON, no other text.
         Output JSON: { "location": "City, State", "venue": "Stadium Name", "confidence": "HIGH/MEDIUM/LOW", "is_neutral_site": boolean }`,
         },
         {
           role: "user",
-          content: `Verify the location for this ${eventType} event: "${title}". Ensure you check the latest schedule.`,
+          content: `Verify the location for this ${eventType} event: "${title}". Ensure you check the latest schedule. Respond with ONLY the JSON object.`,
         },
       ],
-      response_format: { type: "json_object" },
+      // REMOVED: response_format - Venice doesn't support this
       venice_parameters: {
-        enable_web_search: "auto", // CRITICAL: Must use web search for schedules
-        include_venice_system_prompt: true,
+        enable_web_search: "auto", // CRITICAL: Must be string "auto", not boolean
       },
     });
 
@@ -236,6 +292,60 @@ const verifyEventLocation = async (title, eventType) => {
     return null;
   } catch (e) {
     console.error("Location verification failed:", e);
+    return null;
+  }
+};
+
+// Extract structured event metadata via Venice web search
+// Returns { home_team, away_team, venue_name, city, country, competition, kickoff_local, timezone, confidence }
+const extractEventMetadataViaVenice = async (titleText) => {
+  try {
+    const client = new OpenAI({
+      apiKey: process.env.VENICE_API_KEY,
+      baseURL: "https://api.venice.ai/api/v1",
+    });
+
+    const response = await client.chat.completions.create({
+      model: "llama-3.3-70b", // Changed from qwen3-235b
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a precise Sports Fixture Extractor. Use web search to identify exact fixture metadata. You MUST respond with ONLY valid JSON, no other text.",
+        },
+        {
+          role: "user",
+          content: `Extract structured metadata for this market title: "${titleText}".
+
+Return ONLY valid JSON with keys:
+{
+  "home_team": string,
+  "away_team": string,
+  "venue_name": string,
+  "city": string,
+  "country": string,
+  "competition": string,
+  "kickoff_local": string, // ISO with local time if possible
+  "timezone": string,
+  "confidence": "HIGH|MEDIUM|LOW"
+}
+
+Respond with ONLY the JSON object, no other text.`,
+        },
+      ],
+      // REMOVED: response_format - Venice doesn't support this
+      venice_parameters: {
+        enable_web_search: "auto", // Must be string "auto", not boolean
+      },
+    });
+
+    let contentStr = response.choices[0].message.content || "{}";
+    contentStr = contentStr.replace(/```json\n?|\n?```/g, "").trim();
+    const parsed = JSON.parse(contentStr);
+
+    return parsed;
+  } catch (err) {
+    console.warn("Fixture metadata extraction failed:", err?.message || err);
     return null;
   }
 };
@@ -331,6 +441,34 @@ export async function analyzeWeatherImpactServer(params) {
     let correctedLocation = null;
     let correctedWeather = null;
 
+    // Phase 1: Extract fixture metadata via web search
+    let fixtureMeta = null;
+    try {
+      fixtureMeta = await extractEventMetadataViaVenice(title);
+      if (fixtureMeta) {
+        // Update participants if present
+        const teams = [];
+        if (fixtureMeta.home_team) teams.push(fixtureMeta.home_team);
+        if (fixtureMeta.away_team) teams.push(fixtureMeta.away_team);
+        if (teams.length > 0) participants = teams;
+
+        // Update event date if provided
+        if (fixtureMeta.kickoff_local) {
+          eventDate = fixtureMeta.kickoff_local.split("T")[0];
+        }
+
+        // Derive effective location from city/country when venue name present
+        const cityCountry = [fixtureMeta.city, fixtureMeta.country]
+          .filter(Boolean)
+          .join(", ");
+        if (cityCountry && VenueExtractor.isValidVenue(cityCountry)) {
+          effectiveLocation = cityCountry;
+        }
+      }
+    } catch (e) {
+      console.warn("Fixture metadata step failed:", e?.message || e);
+    }
+
     const initialValidation = LocationValidator.validateLocation(
       eventType,
       effectiveLocation || location,
@@ -354,7 +492,8 @@ export async function analyzeWeatherImpactServer(params) {
       }
     }
 
-    if (!correctedLocation && effectiveLocation) {
+    if (!correctedLocation && effectiveLocation && !weatherData) {
+      // Only fetch weather if we don't already have it
       try {
         const newWeather = await weatherService.getCurrentWeather(
           effectiveLocation
@@ -434,7 +573,8 @@ export async function analyzeWeatherImpactServer(params) {
             "Unknown",
           precipitation: `${
             weatherData?.current?.precip_chance ||
-            weatherData?.forecast?.forecastday?.[0]?.day?.daily_chance_of_rain ||
+            weatherData?.forecast?.forecastday?.[0]?.day
+              ?.daily_chance_of_rain ||
             "0"
           }%`,
           wind: `${
@@ -448,21 +588,71 @@ export async function analyzeWeatherImpactServer(params) {
       };
     }
 
-    const analysis = await callVeniceAI(
-      {
-        eventType,
-        location,
-        weatherData,
-        currentOdds,
-        participants,
-        title,
-        isFuturesBet,
-      },
-      {
-        webSearch: mode === "deep",
-        showThinking: false,
+    // Derive participants/event type from title if missing
+    let resolvedParticipants = Array.isArray(participants) ? participants : [];
+    try {
+      if (!resolvedParticipants || resolvedParticipants.length === 0) {
+        const meta = polymarketService.extractMarketMetadata(title || "", []);
+        if (Array.isArray(meta?.teams)) {
+          resolvedParticipants = meta.teams;
+        }
+        if (!eventType && meta?.event_type) {
+          eventType = meta.event_type;
+        }
       }
-    );
+    } catch (e) {
+      console.warn("Metadata extraction failed:", e?.message || e);
+    }
+
+    let analysis;
+    try {
+      analysis = await callVeniceAI(
+        {
+          eventType,
+          location,
+          weatherData,
+          currentOdds,
+          participants: Array.isArray(resolvedParticipants)
+            ? resolvedParticipants.map((p) =>
+                typeof p === "string" ? p : String(p)
+              )
+            : [],
+          title,
+          eventDate,
+          isFuturesBet,
+        },
+        {
+          webSearch: true,
+          showThinking: false,
+        }
+      );
+    } catch (primaryError) {
+      // One retry with explicit web search
+      try {
+        analysis = await callVeniceAI(
+          {
+            eventType,
+            location,
+            weatherData,
+            currentOdds,
+            participants: Array.isArray(resolvedParticipants)
+              ? resolvedParticipants.map((p) =>
+                  typeof p === "string" ? p : String(p)
+                )
+              : [],
+            title,
+            eventDate,
+            isFuturesBet,
+          },
+          {
+            webSearch: true,
+            showThinking: false,
+          }
+        );
+      } catch (secondaryError) {
+        throw primaryError; // preserve original
+      }
+    }
 
     // If we corrected the location, append a note to the analysis
     if (correctedLocation) {
@@ -481,30 +671,41 @@ export async function analyzeWeatherImpactServer(params) {
       await redis.setEx(cacheKey, ttl, JSON.stringify(analysis));
     }
 
+    // Select forecast day aligned to eventDate if available
+    let forecastDay = null;
+    try {
+      const fd = weatherData?.forecast?.forecastday || [];
+      if (eventDate) {
+        forecastDay = fd.find((d) => d.date === eventDate) || fd[0] || null;
+      } else {
+        forecastDay = fd[0] || null;
+      }
+    } catch (e) {
+      console.warn("Forecast day selection failed:", e?.message || e);
+    }
+
+    const wc = {
+      location: location.name || location,
+      temperature: `${
+        weatherData?.current?.temp_f || forecastDay?.day?.avgtemp_f || "N/A"
+      }°F`,
+      condition:
+        weatherData?.current?.condition?.text ||
+        forecastDay?.day?.condition?.text ||
+        "Unknown",
+      precipitation: `${
+        weatherData?.current?.precip_chance ||
+        forecastDay?.day?.daily_chance_of_rain ||
+        "0"
+      }%`,
+      wind: `${
+        weatherData?.current?.wind_mph || forecastDay?.day?.maxwind_mph || "0"
+      } mph`,
+    };
+
     return {
       ...analysis,
-      weather_conditions: {
-        location: location.name || location,
-        temperature: `${
-          weatherData?.current?.temp_f ||
-          weatherData?.forecast?.forecastday?.[0]?.day?.avgtemp_f ||
-          "N/A"
-        }°F`,
-        condition:
-          weatherData?.current?.condition?.text ||
-          weatherData?.forecast?.forecastday?.[0]?.day?.condition?.text ||
-          "Unknown",
-        precipitation: `${
-          weatherData?.current?.precip_chance ||
-          weatherData?.forecast?.forecastday?.[0]?.day?.daily_chance_of_rain ||
-          "0"
-        }%`,
-        wind: `${
-          weatherData?.current?.wind_mph ||
-          weatherData?.forecast?.forecastday?.[0]?.day?.maxwind_mph ||
-          "0"
-        } mph`,
-      },
+      weather_conditions: wc,
       cached: false,
       source: "venice_ai",
     };
@@ -531,7 +732,7 @@ export function getAIStatus() {
   const hasRedis = !!process.env.REDIS_URL;
   return {
     available: true,
-    model: "qwen3-235b",
+    model: "llama-3.3-70b", // Updated to reflect actual model in use
     cacheSize: 0,
     cacheDuration: 10 * 60 * 1000,
     cache: {
