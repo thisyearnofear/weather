@@ -421,6 +421,28 @@ export async function analyzeWeatherImpactServer(params) {
         analysis: "AI service unavailable - no API key configured",
         key_factors: ["API service not configured"],
         recommended_action: "Configure VENICE_API_KEY in environment",
+        weather_conditions: {
+          location: location.name || location,
+          temperature: `${
+            weatherData?.current?.temp_f ||
+            weatherData?.forecast?.forecastday?.[0]?.day?.avgtemp_f ||
+            "N/A"
+          }°F`,
+          condition:
+            weatherData?.current?.condition?.text ||
+            weatherData?.forecast?.forecastday?.[0]?.day?.condition?.text ||
+            "Unknown",
+          precipitation: `${
+            weatherData?.current?.precip_chance ||
+            weatherData?.forecast?.forecastday?.[0]?.day?.daily_chance_of_rain ||
+            "0"
+          }%`,
+          wind: `${
+            weatherData?.current?.wind_mph ||
+            weatherData?.forecast?.forecastday?.[0]?.day?.maxwind_mph ||
+            "0"
+          } mph`,
+        },
         cached: false,
         source: "unavailable",
       };
