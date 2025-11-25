@@ -21,7 +21,22 @@ export function AptosProvider({ children }) {
       ? Network.LOCAL
       : Network.DEVNET;
 
-  const aptos = new Aptos(new AptosConfig({ network }));
+  // For production, it's recommended to use a dedicated RPC provider.
+  // You can set a custom RPC URL and API Key in your .env.local file.
+  const rpcUrl = process.env.NEXT_PUBLIC_APTOS_CUSTOM_RPC_URL;
+  const apiKey = process.env.NEXT_PUBLIC_APTOS_API_KEY;
+
+  const clientConfig = {};
+  if (apiKey) {
+    clientConfig.API_KEY = apiKey;
+  }
+
+  const aptosConfig = { network, clientConfig };
+  if (rpcUrl) {
+    aptosConfig.fullnode = rpcUrl;
+  }
+
+  const aptos = new Aptos(new AptosConfig(aptosConfig));
   const dappUrl =
     process.env.NEXT_PUBLIC_DAPP_URL || "https://fourcastapp.vercel.app";
 
