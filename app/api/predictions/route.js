@@ -143,7 +143,7 @@ export async function POST(request) {
       )
     )
 
-    savePrediction({
+    await savePrediction({
       id: predictionId,
       userAddress: walletAddress,
       marketId: String(marketID),

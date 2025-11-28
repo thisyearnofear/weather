@@ -9,8 +9,8 @@ export async function GET(request) {
             return Response.json({ success: false, error: 'Address is required' }, { status: 400 });
         }
 
-        const statsRes = getUserStats(address);
-        const predictionsRes = getUserPredictions(address, 10); // Last 10 predictions
+        const statsRes = await getUserStats(address);
+        const predictionsRes = await getUserPredictions(address, 10); // Last 10 predictions
 
         if (!statsRes.success) {
             return Response.json({ success: false, error: statsRes.error }, { status: 500 });

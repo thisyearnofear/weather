@@ -203,6 +203,13 @@ export async function getPredictionsByUser(userAddress, limit = 50) {
 }
 
 /**
+ * Get predictions by user (alias for getPredictionsByUser)
+ */
+export async function getUserPredictions(userAddress, limit = 50) {
+  return getPredictionsByUser(userAddress, limit);
+}
+
+/**
  * Get predictions by market
  */
 export async function getPredictionsByMarket(marketId, limit = 50) {
