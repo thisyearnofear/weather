@@ -15,12 +15,14 @@ export default function SignalsPage() {
     const [selectedProfile, setSelectedProfile] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [expandedSignalId, setExpandedSignalId] = useState(null); // Track expanded signals
 
     // Filters
     const [filters, setFilters] = useState({
         eventId: '',
         confidence: 'all',
-        oddsEfficiency: 'all'
+        oddsEfficiency: 'all',
+        author: '' // Filter by author address
     });
 
     // Weather for theming
@@ -102,6 +104,9 @@ export default function SignalsPage() {
                 return false;
             }
             if (filters.oddsEfficiency !== 'all' && signal.odds_efficiency !== filters.oddsEfficiency) {
+                return false;
+            }
+            if (filters.author && !signal.author_address?.toLowerCase().includes(filters.author.toLowerCase())) {
                 return false;
             }
             return true;
@@ -246,47 +251,58 @@ export default function SignalsPage() {
                     ) : (
                         <>
                             {/* Filters */}
-                            <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 mb-8`}>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                    <div>
-                                        <label className={`${textColor} text-xs opacity-60 block mb-1`}>Event ID</label>
-                                        <input
-                                            type="text"
-                                            value={filters.eventId}
-                                            onChange={(e) => setFilters(prev => ({ ...prev, eventId: e.target.value }))}
-                                            placeholder="Filter by event ID..."
-                                            className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white placeholder-white/50' : 'bg-black/10 border-black/20 text-black placeholder-black/50'}`}
-                                        />
-                                    </div>
+                             <div className={`${cardBgColor} backdrop-blur-xl border rounded-3xl p-6 mb-8`}>
+                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                     <div>
+                                         <label className={`${textColor} text-xs opacity-60 block mb-1`}>Event ID</label>
+                                         <input
+                                             type="text"
+                                             value={filters.eventId}
+                                             onChange={(e) => setFilters(prev => ({ ...prev, eventId: e.target.value }))}
+                                             placeholder="Filter by event..."
+                                             className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white placeholder-white/50' : 'bg-black/10 border-black/20 text-black placeholder-black/50'}`}
+                                         />
+                                     </div>
 
-                                    <div>
-                                        <label className={`${textColor} text-xs opacity-60 block mb-1`}>Confidence</label>
-                                        <select
-                                            value={filters.confidence}
-                                            onChange={(e) => setFilters(prev => ({ ...prev, confidence: e.target.value }))}
-                                            className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
-                                        >
-                                            <option value="all">All Confidence Levels</option>
-                                            <option value="HIGH">High</option>
-                                            <option value="MEDIUM">Medium</option>
-                                            <option value="LOW">Low</option>
-                                        </select>
-                                    </div>
+                                     <div>
+                                         <label className={`${textColor} text-xs opacity-60 block mb-1`}>Confidence</label>
+                                         <select
+                                             value={filters.confidence}
+                                             onChange={(e) => setFilters(prev => ({ ...prev, confidence: e.target.value }))}
+                                             className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
+                                         >
+                                             <option value="all">All Confidence</option>
+                                             <option value="HIGH">High</option>
+                                             <option value="MEDIUM">Medium</option>
+                                             <option value="LOW">Low</option>
+                                         </select>
+                                     </div>
 
-                                    <div>
-                                        <label className={`${textColor} text-xs opacity-60 block mb-1`}>Odds Efficiency</label>
-                                        <select
-                                            value={filters.oddsEfficiency}
-                                            onChange={(e) => setFilters(prev => ({ ...prev, oddsEfficiency: e.target.value }))}
-                                            className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
-                                        >
-                                            <option value="all">All Efficiency Levels</option>
-                                            <option value="INEFFICIENT">Inefficient</option>
-                                            <option value="EFFICIENT">Efficient</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
+                                     <div>
+                                         <label className={`${textColor} text-xs opacity-60 block mb-1`}>Odds Efficiency</label>
+                                         <select
+                                             value={filters.oddsEfficiency}
+                                             onChange={(e) => setFilters(prev => ({ ...prev, oddsEfficiency: e.target.value }))}
+                                             className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white' : 'bg-black/10 border-black/20 text-black'}`}
+                                         >
+                                             <option value="all">All Efficiency</option>
+                                             <option value="INEFFICIENT">Inefficient</option>
+                                             <option value="EFFICIENT">Efficient</option>
+                                         </select>
+                                     </div>
+
+                                     <div>
+                                         <label className={`${textColor} text-xs opacity-60 block mb-1`}>Author</label>
+                                         <input
+                                             type="text"
+                                             value={filters.author}
+                                             onChange={(e) => setFilters(prev => ({ ...prev, author: e.target.value }))}
+                                             placeholder="Filter by author..."
+                                             className={`w-full px-3 py-2 text-sm rounded-lg border ${isNight ? 'bg-white/10 border-white/20 text-white placeholder-white/50' : 'bg-black/10 border-black/20 text-black placeholder-black/50'}`}
+                                         />
+                                     </div>
+                                 </div>
+                             </div>
 
                             {/* Stats Summary */}
                             {!isLoading && !error && (
@@ -355,49 +371,76 @@ export default function SignalsPage() {
 
                                             {/* Signal Timeline */}
                                             <div className="space-y-3">
-                                                {eventSignals.map((signal, index) => (
-                                                    <div
-                                                        key={signal.id || index}
-                                                        className={`border-l-2 pl-4 ${isNight ? 'border-blue-500/30' : 'border-blue-400/30'}`}
-                                                    >
-                                                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                                                            <span className={getConfidenceBadge(signal.confidence)}>
-                                                                {signal.confidence || 'UNKNOWN'}
-                                                            </span>
-                                                            {signal.odds_efficiency && (
-                                                                <span className={`px-3 py-1 rounded-full text-xs font-light border ${signal.odds_efficiency === 'INEFFICIENT'
-                                                                    ? (isNight ? 'bg-orange-500/20 text-orange-300 border-orange-500/30' : 'bg-orange-400/20 text-orange-800 border-orange-400/30')
-                                                                    : (isNight ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-green-400/20 text-green-800 border-green-400/30')
-                                                                    }`}>
-                                                                    {signal.odds_efficiency}
-                                                                </span>
-                                                            )}
-                                                            <span className={`text-xs ${textColor} opacity-50`}>
-                                                                {formatTimestamp(signal.timestamp)}
-                                                            </span>
-                                                            {signal.tx_hash && (
-                                                                <span className={`px-3 py-1 rounded-full text-xs font-light border ${isNight ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-purple-400/20 text-purple-800 border-purple-400/30'}`}>
-                                                                    On-chain: {signal.tx_hash.substring(0, 8)}...
-                                                                </span>
-                                                            )}
-                                                        </div>
-
-                                                        {signal.ai_digest && (
-                                                            <p className={`text-sm ${textColor} opacity-70 line-clamp-2`}>
-                                                                {signal.ai_digest}
-                                                            </p>
-                                                        )}
-
-                                                        {signal.author_address && (
-                                                            <button
-                                                                onClick={() => handleProfileClick(signal.author_address)}
-                                                                className={`text-xs ${textColor} opacity-50 mt-1 hover:opacity-100 hover:underline text-left`}
+                                                {eventSignals.map((signal, index) => {
+                                                        const isExpanded = expandedSignalId === signal.id;
+                                                        return (
+                                                            <div
+                                                                key={signal.id || index}
+                                                                className={`border-l-2 pl-4 pb-4 cursor-pointer transition-all ${isNight ? 'border-blue-500/30 hover:border-blue-500/60' : 'border-blue-400/30 hover:border-blue-400/60'}`}
+                                                                onClick={() => setExpandedSignalId(isExpanded ? null : signal.id)}
                                                             >
-                                                                By: {signal.author_address.substring(0, 6)}...{signal.author_address.substring(signal.author_address.length - 4)}
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                ))}
+                                                                <div className="flex flex-wrap items-center gap-2 mb-2">
+                                                                    <span className={getConfidenceBadge(signal.confidence)}>
+                                                                        {signal.confidence || 'UNKNOWN'}
+                                                                    </span>
+                                                                    {signal.odds_efficiency && (
+                                                                        <span className={`px-3 py-1 rounded-full text-xs font-light border ${signal.odds_efficiency === 'INEFFICIENT'
+                                                                            ? (isNight ? 'bg-orange-500/20 text-orange-300 border-orange-500/30' : 'bg-orange-400/20 text-orange-800 border-orange-400/30')
+                                                                            : (isNight ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-green-400/20 text-green-800 border-green-400/30')
+                                                                            }`}>
+                                                                            {signal.odds_efficiency}
+                                                                        </span>
+                                                                    )}
+                                                                    <span className={`text-xs ${textColor} opacity-50`}>
+                                                                        {formatTimestamp(signal.timestamp)}
+                                                                    </span>
+                                                                    {signal.tx_hash && (
+                                                                        <span className={`px-3 py-1 rounded-full text-xs font-light border ${isNight ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-purple-400/20 text-purple-800 border-purple-400/30'}`}>
+                                                                            On-chain: {signal.tx_hash.substring(0, 8)}...
+                                                                        </span>
+                                                                    )}
+                                                                    <span className={`ml-auto text-xs opacity-40 ${isExpanded ? 'rotate-180' : ''} transition-transform`}>▼</span>
+                                                                </div>
+
+                                                                {signal.ai_digest && (
+                                                                    <p className={`text-sm ${textColor} opacity-70 ${isExpanded ? '' : 'line-clamp-2'} transition-all`}>
+                                                                        {signal.ai_digest}
+                                                                    </p>
+                                                                )}
+
+                                                                {isExpanded && signal.weather_json && (
+                                                                    <div className={`mt-3 p-3 rounded-lg ${isNight ? 'bg-white/5' : 'bg-black/5'} text-xs space-y-2`}>
+                                                                        <p className={`${textColor} font-medium mb-2`}>Weather Data</p>
+                                                                        {typeof signal.weather_json === 'string' ? (
+                                                                            <p className={`${textColor} opacity-60`}>{signal.weather_json}</p>
+                                                                        ) : (
+                                                                            <p className={`${textColor} opacity-60`}>{JSON.stringify(signal.weather_json, null, 2)}</p>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+
+                                                                {isExpanded && signal.market_snapshot_hash && (
+                                                                    <div className={`mt-3 p-3 rounded-lg ${isNight ? 'bg-white/5' : 'bg-black/5'}`}>
+                                                                        <p className={`text-xs ${textColor} opacity-60`}>
+                                                                            <span className="font-medium">Market Snapshot:</span> {signal.market_snapshot_hash}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+
+                                                                {signal.author_address && (
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleProfileClick(signal.author_address);
+                                                                        }}
+                                                                        className={`text-xs ${textColor} opacity-50 mt-2 hover:opacity-100 hover:underline text-left`}
+                                                                    >
+                                                                        By: {signal.author_address.substring(0, 6)}...{signal.author_address.substring(signal.author_address.length - 4)}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                             </div>
 
                                             {/* Event Stats */}

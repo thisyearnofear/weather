@@ -9,6 +9,7 @@ import { weatherService } from "@/services/weatherService";
 import { arbitrageService } from "@/services/arbitrageService";
 import PageNav from "@/app/components/PageNav";
 import Scene3D from "@/components/Scene3D";
+import { useToast, ToastContainer } from "@/components/Toast";
 
 export default function MarketsPage() {
   const { address, isConnected } = useAccount();
@@ -20,6 +21,7 @@ export default function MarketsPage() {
     connected: aptosConnected,
     walletAddress,
   } = useAptosSignalPublisher();
+  const { toasts, addToast, removeToast } = useToast();
 
   // Tab state: 'sports' or 'discovery'
   const [activeTab, setActiveTab] = useState("sports");
@@ -278,20 +280,11 @@ export default function MarketsPage() {
     if (!aptosConnected) {
       // Scroll to top where the connect button is
       window.scrollTo({ top: 0, behavior: "smooth" });
-
-      // Show a helpful message
-      const shouldConnect = confirm(
-        "📡 Connect Aptos Wallet\n\n" +
-          "To publish your signal on-chain, you need to connect your Aptos wallet.\n\n" +
-          "Click OK to scroll to the top and connect your wallet."
+      addToast(
+        "Connect your Aptos wallet to publish your signal on-chain",
+        "warning",
+        5000
       );
-
-      if (shouldConnect) {
-        // Highlight the connect button area briefly
-        setTimeout(() => {
-          alert("👆 Click 'Connect Aptos Wallet' at the top right to continue");
-        }, 500);
-      }
       return;
     }
 
@@ -311,7 +304,7 @@ export default function MarketsPage() {
       const result = await response.json();
 
       if (!result.success) {
-        alert("Failed to save signal: " + result.error);
+        addToast(`Failed to save signal: ${result.error}`, "error", 5000);
         return;
       }
 
@@ -349,19 +342,23 @@ export default function MarketsPage() {
           setMySignalCount(c);
         } catch {}
 
-        alert(
-          `✅ Signal published on-chain!\n\nLocal ID: ${result.id}\nAptos TX: ${txHash}`
+        addToast(
+          `Signal published on-chain · TX: ${txHash.slice(0, 10)}...`,
+          "success",
+          5000,
+          "/signals",
+          "View Signals"
         );
       } else {
-        alert(
-          `⚠️ Signal saved locally (ID: ${
-            result.id
-          })\n\nAptos publish failed: ${publishError || "Unknown error"}`
+        addToast(
+          `Signal saved locally but Aptos publish failed: ${publishError || "Unknown error"}`,
+          "warning",
+          5000
         );
       }
     } catch (err) {
       console.error("Failed to publish signal:", err);
-      alert("❌ Failed to publish signal");
+      addToast("Failed to publish signal", "error", 5000);
     }
   };
 
@@ -396,6 +393,9 @@ export default function MarketsPage() {
           quality="ambient"
         />
       </div>
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} removeToast={removeToast} isNight={isNight} />
 
       {/* Scrollable Content */}
       <div className="relative z-20 flex flex-col min-h-screen overflow-y-auto">
