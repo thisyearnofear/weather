@@ -93,9 +93,21 @@ const initSql = `
 
 // Initialize tables
 if (isTurso) {
-  db.execute(initSql).catch(err => {
-    console.warn('Failed to create tables:', err.message);
-  });
+  // Split SQL statements for Turso (it doesn't support multiple statements at once)
+  const statements = initSql.split(';').filter(s => s.trim());
+  (async () => {
+    for (const stmt of statements) {
+      if (stmt.trim()) {
+        try {
+          await db.execute(stmt.trim());
+        } catch (err) {
+          if (!err.message.includes('already exists')) {
+            console.warn('Failed to create table:', err.message);
+          }
+        }
+      }
+    }
+  })();
 } else {
   db.exec(initSql);
 }
@@ -103,10 +115,15 @@ if (isTurso) {
 // Database operation helpers
 async function execute(sql, params = []) {
   if (isTurso) {
-    return await db.execute({
-      sql,
-      args: params,
-    });
+    try {
+      return await db.execute({
+        sql,
+        args: params,
+      });
+    } catch (err) {
+      console.error('Execute error:', err, 'SQL:', sql);
+      throw err;
+    }
   } else {
     const stmt = db.prepare(sql);
     if (params.length > 0) {
@@ -119,11 +136,17 @@ async function execute(sql, params = []) {
 
 async function query(sql, params = []) {
   if (isTurso) {
-    const result = await db.execute({
-      sql,
-      args: params,
-    });
-    return result.rows || [];
+    try {
+      const result = await db.execute({
+        sql,
+        args: params,
+      });
+      // Turso returns rows as an array of objects
+      return Array.isArray(result) ? result : (result.rows || []);
+    } catch (err) {
+      console.error('Query error:', err);
+      throw err;
+    }
   } else {
     const stmt = db.prepare(sql);
     if (params.length > 0) {
