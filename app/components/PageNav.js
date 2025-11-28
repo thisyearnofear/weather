@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export default function PageNav({ currentPage, isNight }) {
   const textColor = isNight ? "text-white" : "text-black";
   const bgClass = isNight
@@ -17,14 +19,14 @@ export default function PageNav({ currentPage, isNight }) {
   return (
     <div className="flex items-center space-x-2">
       {otherPages.map((page) => (
-        <a
+        <Link
           key={page.name}
           href={page.href}
           className={`flex items-center space-x-2 px-3 py-2 ${textColor} rounded-lg border ${bgClass} text-sm font-medium hover:scale-[1.03] transition-transform`}
         >
           <span>{page.label}</span>
           <span>{page.name}</span>
-        </a>
+        </Link>
       ))}
     </div>
   );
