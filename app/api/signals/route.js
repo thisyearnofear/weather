@@ -37,7 +37,7 @@ export async function POST(request) {
 
     const venue = market.location || market.venue || null
 
-    const res = saveSignal({
+    const res = await saveSignal({
       id,
       event_id: eventId,
       market_title: snapshot.title,
@@ -69,7 +69,7 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '20', 10)
-    const res = getLatestSignals(limit)
+    const res = await getLatestSignals(limit)
     if (!res.success) {
       return Response.json({ success: false, error: res.error }, { status: 500 })
     }
@@ -88,7 +88,7 @@ export async function PATCH(request) {
       return Response.json({ success: false, error: 'missing id or tx_hash' }, { status: 400 })
     }
 
-    const res = updateSignalTxHash(id, tx_hash)
+    const res = await updateSignalTxHash(id, tx_hash)
     if (!res.success) {
       return Response.json({ success: false, error: res.error }, { status: 500 })
     }

@@ -1,25 +1,38 @@
 // Database service for prediction history and analytics
-// Uses SQLite for simplicity - no external dependencies needed
+// Uses Turso (LibSQL) for production, SQLite for local development
 
+import { createClient } from '@libsql/client';
 import Database from 'better-sqlite3';
 import path from 'path';
 
+let db;
+let isTurso = false;
+
 // Initialize database
-const dbPath = process.env.NODE_ENV === 'production'
-  ? '/tmp/fourcast.db'
-  : path.join(process.cwd(), 'fourcast.db');
+if (process.env.TURSO_CONNECTION_URL && process.env.TURSO_AUTH_TOKEN) {
+  // Production: Use Turso
+  db = createClient({
+    url: process.env.TURSO_CONNECTION_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
+  isTurso = true;
+  console.log('Using Turso database');
+} else {
+  // Development: Use local SQLite
+  const dbPath = path.join(process.cwd(), 'fourcast.db');
+  db = new Database(dbPath);
 
-const db = new Database(dbPath);
-
-// Enable WAL mode for better concurrency
-try {
-  db.pragma('journal_mode = WAL');
-} catch (err) {
-  console.warn('Failed to set WAL mode:', err.message);
+  // Enable WAL mode for better concurrency
+  try {
+    db.pragma('journal_mode = WAL');
+  } catch (err) {
+    console.warn('Failed to set WAL mode:', err.message);
+  }
+  console.log('Using local SQLite database');
 }
 
 // Create tables
-db.exec(`
+const initSql = `
   CREATE TABLE IF NOT EXISTS predictions (
     id TEXT PRIMARY KEY,
     user_address TEXT NOT NULL,
@@ -76,93 +89,55 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_signals_event_id ON signals(event_id);
   CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(timestamp DESC);
-`);
+`;
 
-// Prepared statements for performance
-const statements = {
-  insertPrediction: db.prepare(`
-    INSERT INTO predictions (
-      id, user_address, market_id, market_title, side, 
-      stake_wei, odds_bps, chain_id, tx_hash, metadata_uri, timestamp
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `),
+// Initialize tables
+if (isTurso) {
+  db.execute(initSql).catch(err => {
+    console.warn('Failed to create tables:', err.message);
+  });
+} else {
+  db.exec(initSql);
+}
 
-  getPredictionsByUser: db.prepare(`
-    SELECT * FROM predictions 
-    WHERE user_address = ? 
-    ORDER BY timestamp DESC 
-    LIMIT ?
-  `),
+// Database operation helpers
+async function execute(sql, params = []) {
+  if (isTurso) {
+    return await db.execute({
+      sql,
+      args: params,
+    });
+  } else {
+    const stmt = db.prepare(sql);
+    if (params.length > 0) {
+      return stmt.run(...params);
+    } else {
+      return stmt.run();
+    }
+  }
+}
 
-  getPredictionsByMarket: db.prepare(`
-    SELECT * FROM predictions 
-    WHERE market_id = ? 
-    ORDER BY timestamp DESC
-  `),
-
-  getUserStats: db.prepare(`
-    SELECT * FROM user_stats 
-    WHERE user_address = ?
-  `),
-
-  updateUserStats: db.prepare(`
-    INSERT INTO user_stats (user_address, total_predictions, total_stake_wei)
-    VALUES (?, 1, ?)
-    ON CONFLICT(user_address) DO UPDATE SET
-      total_predictions = total_predictions + 1,
-      total_stake_wei = CAST(total_stake_wei AS INTEGER) + CAST(excluded.total_stake_wei AS INTEGER),
-      updated_at = strftime('%s', 'now')
-  `),
-
-  setMarketOutcome: db.prepare(`
-    INSERT INTO market_outcomes (market_id, resolved, outcome, resolution_time)
-    VALUES (?, 1, ?, ?)
-    ON CONFLICT(market_id) DO UPDATE SET
-      resolved = 1,
-      outcome = excluded.outcome,
-      resolution_time = excluded.resolution_time
-  `),
-
-  getRecentPredictions: db.prepare(`
-    SELECT p.*, m.resolved, m.outcome
-    FROM predictions p
-    LEFT JOIN market_outcomes m ON p.market_id = m.market_id
-    ORDER BY p.timestamp DESC
-    LIMIT ?
-  `),
-
-  insertSignal: db.prepare(`
-    INSERT INTO signals (
-      id, event_id, market_title, venue, event_time, market_snapshot_hash,
-      weather_json, ai_digest, confidence, odds_efficiency, author_address,
-      tx_hash, timestamp
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `),
-
-  getLatestSignals: db.prepare(`
-    SELECT * FROM signals
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `),
-
-  getSignalsByEventId: db.prepare(`
-    SELECT * FROM signals
-    WHERE event_id = ?
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `),
-
-  updateSignalTxHash: db.prepare(`
-    UPDATE signals 
-    SET tx_hash = ? 
-    WHERE id = ?
-  `),
-};
+async function query(sql, params = []) {
+  if (isTurso) {
+    const result = await db.execute({
+      sql,
+      args: params,
+    });
+    return result.rows || [];
+  } else {
+    const stmt = db.prepare(sql);
+    if (params.length > 0) {
+      return stmt.all(...params);
+    } else {
+      return stmt.all();
+    }
+  }
+}
 
 /**
  * Save a prediction to the database
  */
-export function savePrediction(prediction) {
+export async function savePrediction(prediction) {
   try {
     // Validate timestamp is reasonable (within 5 min of now)
     const now = Math.floor(Date.now() / 1000)
@@ -171,24 +146,35 @@ export function savePrediction(prediction) {
       console.warn(`Prediction timestamp off by ${timeDiff}s - possible clock skew`)
     }
 
-    statements.insertPrediction.run(
-      prediction.id,
-      prediction.userAddress.toLowerCase(),
-      prediction.marketId,
-      prediction.marketTitle || null,
-      prediction.side,
-      prediction.stakeWei.toString(),
-      prediction.oddsBps,
-      prediction.chainId,
-      prediction.txHash || null,
-      prediction.metadataUri || null,
-      prediction.timestamp
+    await execute(
+      `INSERT INTO predictions (
+        id, user_address, market_id, market_title, side, 
+        stake_wei, odds_bps, chain_id, tx_hash, metadata_uri, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        prediction.id,
+        prediction.userAddress.toLowerCase(),
+        prediction.marketId,
+        prediction.marketTitle || null,
+        prediction.side,
+        prediction.stakeWei.toString(),
+        prediction.oddsBps,
+        prediction.chainId,
+        prediction.txHash || null,
+        prediction.metadataUri || null,
+        prediction.timestamp
+      ]
     );
 
     // Update user stats
-    statements.updateUserStats.run(
-      prediction.userAddress.toLowerCase(),
-      prediction.stakeWei.toString()
+    await execute(
+      `INSERT INTO user_stats (user_address, total_predictions, total_stake_wei)
+       VALUES (?, 1, ?)
+       ON CONFLICT(user_address) DO UPDATE SET
+         total_predictions = total_predictions + 1,
+         total_stake_wei = CAST(total_stake_wei AS INTEGER) + CAST(excluded.total_stake_wei AS INTEGER),
+         updated_at = strftime('%s', 'now')`,
+      [prediction.userAddress.toLowerCase(), prediction.stakeWei.toString()]
     );
 
     return { success: true };
@@ -199,102 +185,89 @@ export function savePrediction(prediction) {
 }
 
 /**
- * Get predictions for a specific user
+ * Get predictions by user
  */
-export function getUserPredictions(userAddress, limit = 50) {
+export async function getPredictionsByUser(userAddress, limit = 50) {
   try {
-    const predictions = statements.getPredictionsByUser.all(
-      userAddress.toLowerCase(),
-      limit
+    const rows = await query(
+      `SELECT * FROM predictions 
+       WHERE user_address = ? 
+       ORDER BY timestamp DESC 
+       LIMIT ?`,
+      [userAddress.toLowerCase(), limit]
     );
-    return { success: true, predictions };
+    return { success: true, predictions: rows };
   } catch (error) {
-    console.error('Failed to get user predictions:', error);
     return { success: false, error: error.message, predictions: [] };
   }
 }
 
 /**
- * Get predictions for a specific market
+ * Get predictions by market
  */
-export function getMarketPredictions(marketId) {
+export async function getPredictionsByMarket(marketId, limit = 50) {
   try {
-    const predictions = statements.getPredictionsByMarket.all(marketId);
-    return { success: true, predictions };
-  } catch (error) {
-    console.error('Failed to get market predictions:', error);
-    return { success: false, error: error.message, predictions: [] };
-  }
-}
-
-/**
- * Get user statistics
- */
-export function getUserStats(userAddress) {
-  try {
-    const stats = statements.getUserStats.get(userAddress.toLowerCase());
-    return {
-      success: true,
-      stats: stats || {
-        user_address: userAddress.toLowerCase(),
-        total_predictions: 0,
-        total_stake_wei: '0',
-        win_count: 0,
-        loss_count: 0
-      }
-    };
-  } catch (error) {
-    console.error('Failed to get user stats:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-/**
- * Record market outcome
- */
-export function setMarketOutcome(marketId, outcome) {
-  try {
-    statements.setMarketOutcome.run(
-      marketId,
-      outcome,
-      Math.floor(Date.now() / 1000)
+    const rows = await query(
+      `SELECT * FROM predictions 
+       WHERE market_id = ? 
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+      [marketId, limit]
     );
-    return { success: true };
+    return { success: true, predictions: rows };
   } catch (error) {
-    console.error('Failed to set market outcome:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-/**
- * Get recent predictions with outcomes
- */
-export function getRecentPredictions(limit = 20) {
-  try {
-    const predictions = statements.getRecentPredictions.all(limit);
-    return { success: true, predictions };
-  } catch (error) {
-    console.error('Failed to get recent predictions:', error);
     return { success: false, error: error.message, predictions: [] };
   }
 }
 
-export function saveSignal(signal) {
+/**
+ * Get user stats
+ */
+export async function getUserStats(userAddress) {
   try {
-    statements.insertSignal.run(
-      signal.id,
-      signal.event_id,
-      signal.market_title || null,
-      signal.venue || null,
-      signal.event_time || null,
-      signal.market_snapshot_hash || null,
-      signal.weather_json ? JSON.stringify(signal.weather_json) : null,
-      signal.ai_digest || null,
-      signal.confidence || null,
-      signal.odds_efficiency || null,
-      signal.author_address ? signal.author_address.toLowerCase() : null,
-      signal.tx_hash || null,
-      signal.timestamp
+    const rows = await query(
+      `SELECT * FROM user_stats 
+       WHERE user_address = ?`,
+      [userAddress.toLowerCase()]
+    );
+    return { success: true, stats: rows[0] || null };
+  } catch (error) {
+    return { success: false, error: error.message, stats: null };
+  }
+}
+
+/**
+ * Get recent predictions
+ */
+export async function getRecentPredictions(limit = 50) {
+  try {
+    const rows = await query(
+      `SELECT p.*, m.resolved, m.outcome
+       FROM predictions p
+       LEFT JOIN market_outcomes m ON p.market_id = m.market_id
+       ORDER BY p.timestamp DESC
+       LIMIT ?`,
+      [limit]
+    );
+    return { success: true, predictions: rows };
+  } catch (error) {
+    return { success: false, error: error.message, predictions: [] };
+  }
+}
+
+/**
+ * Set market outcome
+ */
+export async function setMarketOutcome(marketId, outcome, resolutionTime) {
+  try {
+    await execute(
+      `INSERT INTO market_outcomes (market_id, resolved, outcome, resolution_time)
+       VALUES (?, 1, ?, ?)
+       ON CONFLICT(market_id) DO UPDATE SET
+         resolved = 1,
+         outcome = excluded.outcome,
+         resolution_time = excluded.resolution_time`,
+      [marketId, outcome, resolutionTime]
     );
     return { success: true };
   } catch (error) {
@@ -302,30 +275,86 @@ export function saveSignal(signal) {
   }
 }
 
-export function getLatestSignals(limit = 20) {
+/**
+ * Save a signal to the database
+ */
+export async function saveSignal(signal) {
   try {
-    const rows = statements.getLatestSignals.all(limit);
+    await execute(
+      `INSERT INTO signals (
+        id, event_id, market_title, venue, event_time, market_snapshot_hash,
+        weather_json, ai_digest, confidence, odds_efficiency, author_address,
+        tx_hash, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        signal.id,
+        signal.event_id,
+        signal.market_title,
+        signal.venue,
+        signal.event_time,
+        signal.market_snapshot_hash,
+        signal.weather_json ? JSON.stringify(signal.weather_json) : null,
+        signal.ai_digest,
+        signal.confidence,
+        signal.odds_efficiency,
+        signal.author_address ? signal.author_address.toLowerCase() : null,
+        signal.tx_hash,
+        signal.timestamp
+      ]
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to save signal:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get latest signals
+ */
+export async function getLatestSignals(limit = 20) {
+  try {
+    const rows = await query(
+      `SELECT * FROM signals
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+      [limit]
+    );
     return { success: true, signals: rows };
   } catch (error) {
     return { success: false, error: error.message, signals: [] };
   }
 }
 
-export function getSignalsByEvent(eventId, limit = 50) {
+/**
+ * Get signals by event
+ */
+export async function getSignalsByEvent(eventId, limit = 50) {
   try {
-    const rows = statements.getSignalsByEventId.all(eventId, limit);
+    const rows = await query(
+      `SELECT * FROM signals
+       WHERE event_id = ?
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+      [eventId, limit]
+    );
     return { success: true, signals: rows };
   } catch (error) {
     return { success: false, error: error.message, signals: [] };
   }
 }
 
-export function updateSignalTxHash(id, txHash) {
+/**
+ * Update signal tx_hash
+ */
+export async function updateSignalTxHash(id, txHash) {
   try {
-    const info = statements.updateSignalTxHash.run(txHash, id);
-    if (info.changes === 0) {
-      return { success: false, error: 'Signal not found' };
-    }
+    await execute(
+      `UPDATE signals 
+       SET tx_hash = ? 
+       WHERE id = ?`,
+      [txHash, id]
+    );
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -333,42 +362,42 @@ export function updateSignalTxHash(id, txHash) {
 }
 
 /**
- * Get leaderboard data
+ * Get signal count for a user
  */
-export function getLeaderboard(limit = 10) {
+export async function getSignalCount(authorAddress) {
   try {
-    const leaderboard = db.prepare(`
-      SELECT 
-        u.user_address,
-        u.total_predictions,
-        u.total_stake_wei,
-        u.win_count,
-        u.loss_count,
-        (SELECT COUNT(*) FROM signals s WHERE s.author_address = u.user_address) as total_signals,
-        CASE 
-          WHEN (u.win_count + u.loss_count) > 0 
-          THEN CAST(u.win_count AS REAL) / (u.win_count + u.loss_count) 
-          ELSE 0 
-        END as win_rate
-      FROM user_stats u
-      WHERE u.total_predictions >= 3 OR total_signals > 0
-      ORDER BY win_rate DESC, total_signals DESC, u.total_predictions DESC
-      LIMIT ?
-    `).all(limit);
-
-    return { success: true, leaderboard };
+    const rows = await query(
+      `SELECT COUNT(*) as count FROM signals
+       WHERE author_address = ?`,
+      [authorAddress.toLowerCase()]
+    );
+    return rows[0]?.count || 0;
   } catch (error) {
-    console.error('Failed to get leaderboard:', error);
+    console.error('Failed to get signal count:', error);
+    return 0;
+  }
+}
+
+/**
+ * Get leaderboard (top analysts by win rate)
+ */
+export async function getLeaderboard(limit = 50) {
+  try {
+    const rows = await query(
+      `SELECT 
+         author_address as user_address,
+         COUNT(*) as total_predictions,
+         SUM(CASE WHEN confidence = 'HIGH' THEN 1 ELSE 0 END) as high_confidence_signals,
+         AVG(CASE WHEN odds_efficiency = 'EFFICIENT' THEN 1 ELSE 0 END) as win_rate
+       FROM signals
+       WHERE author_address IS NOT NULL
+       GROUP BY author_address
+       ORDER BY high_confidence_signals DESC, total_predictions DESC
+       LIMIT ?`,
+      [limit]
+    );
+    return { success: true, leaderboard: rows };
+  } catch (error) {
     return { success: false, error: error.message, leaderboard: [] };
   }
 }
-
-/**
- * Close database connection (for graceful shutdown)
- */
-export function closeDatabase() {
-  db.close();
-}
-
-// Export database instance for advanced queries if needed
-export { db };

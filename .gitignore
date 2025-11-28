@@ -54,3 +54,6 @@ move/build/
 .idea/
 *.swp
 *.swo.aptos-testnet/
+
+congig.yaml
+.aptos-testnet

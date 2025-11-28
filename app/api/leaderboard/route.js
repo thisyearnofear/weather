@@ -5,7 +5,7 @@ export async function GET(request) {
         const { searchParams } = new URL(request.url);
         const limit = parseInt(searchParams.get('limit') || '10', 10);
 
-        const res = getLeaderboard(limit);
+        const res = await getLeaderboard(limit);
 
         if (!res.success) {
             return Response.json({ success: false, error: res.error }, { status: 500 });
